@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.4.9
+// @version      0.5.0
 // @description  Adds local-only presets, persistent last-used selections, daily totals, and page-size defaults. Never submits automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -20,6 +20,7 @@
     storageKey: "sptt.logbookPresets.v1",
     previousKey: "sptt.previousLogbookActivity.v1",
     lastUsedKey: "sptt.lastUsedLogbookSelections.v1",
+    clientContactTargetKey: "sptt.clientContactTargetHours.v1",
     panelId: "sptt-logbook-presets-panel",
     dailyTotalsId: "sptt-daily-hours-tally",
     contractProgressId: "sptt-contract-progress",
@@ -116,7 +117,8 @@
         },
         savedAt: "2026-07-30T11:06:36.356Z",
       },
-    ],    defaultActivitiesPerPage: "20",
+    ],
+    defaultActivitiesPerPage: "20",
     clientContactTargetHours: 172,
     usePlacementHoursAsClientContactFallback: true,
     theme: { accent: "#c05621", accentDark: "#9c4221", accentSoft: "#fff7ed", accentBorder: "#fdba74" },
@@ -254,6 +256,22 @@
 
   function writeLastUsed(values) {
     storageSet(CONFIG.lastUsedKey, sanitizeValues(values, { lastUsedOnly: true }));
+  }
+
+  function readClientContactTarget() {
+    const stored = Number(storageGet(CONFIG.clientContactTargetKey, CONFIG.clientContactTargetHours));
+    if (Number.isFinite(stored) && stored > 0) return stored;
+    return Number.isFinite(CONFIG.clientContactTargetHours) ? CONFIG.clientContactTargetHours : null;
+  }
+
+  function writeClientContactTarget(value) {
+    const target = Number(value);
+    if (!Number.isFinite(target) || target <= 0) {
+      error("Client contact target must be a positive number.");
+      return null;
+    }
+    storageSet(CONFIG.clientContactTargetKey, target);
+    return target;
   }
 
   function fieldContainerByLabel(root, labelText) {
@@ -793,7 +811,8 @@
         if (progress.style.cssText !== progressStyle) progress.style.cssText = progressStyle;
         const contactCard = findMetricCard("Client contact hours");
         const currentContactHours = contactCard ? parseNumber(contactCard.textContent) : NaN;
-        const clientTarget = CONFIG.clientContactTargetHours ?? (CONFIG.usePlacementHoursAsClientContactFallback ? placementHours : NaN);
+        const savedClientTarget = readClientContactTarget();
+        const clientTarget = savedClientTarget ?? (CONFIG.usePlacementHoursAsClientContactFallback ? placementHours : NaN);
         const projectedTotal = Number.isFinite(currentContactHours)
           ? (currentContactHours / currentWeek) * totalWeeks
           : NaN;
@@ -811,6 +830,19 @@
           segments.forEach((parts, index) => {
             const segment = document.createElement("span");
             segment.style.cssText = `display:inline-flex;align-items:baseline;justify-content:center;padding:0 14px;${index > 0 ? `border-left:1px solid ${CONFIG.theme.accentBorder};` : ""}`;
+            if (index === 2) {
+              segment.title = "Click to change client contact target hours";
+              segment.style.cursor = "pointer";
+              segment.addEventListener("click", () => {
+                const next = window.prompt("Client contact target hours", String(readClientContactTarget() ?? ""));
+                if (next === null) return;
+                const saved = writeClientContactTarget(next);
+                if (saved !== null) {
+                  progress.dataset.signature = "";
+                  renderContractDashboardProgress();
+                }
+              });
+            }
             parts.forEach((part) => {
               const node = document.createElement(typeof part === "number" ? "strong" : "span");
               node.textContent = String(part);

@@ -92,13 +92,20 @@ The date is persistent, so if you last used `30/07/2026`, opening the modal agai
 
 ## Dashboard Targets
 
-The client contact target is currently configured as:
+The script ships with a default client contact target of `172` hours.
+
+To change it without editing code:
+
+1. Open the contract dashboard.
+2. Click the `Client contact forecast` text in the orange progress strip.
+3. Enter your required target hours.
+4. The value is saved locally in Tampermonkey/browser storage.
+
+The code default is still available here if you want to change the shipped default:
 
 ```js
 clientContactTargetHours: 172
 ```
-
-If your required minimum is different, change that value in `logbook-presets.user.js`.
 
 ## Updating From GitHub
 
