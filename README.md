@@ -1,0 +1,158 @@
+# SPTT Dashboard Logbook Presets
+
+Unofficial Tampermonkey userscript for the SPTT Dashboard logbook pages.
+
+It adds local presets, persistent last-used activity selections, daily hour totals, dashboard progress indicators, and a default `20` rows per page setting for logbook activity tables.
+
+## What It Does
+
+- Adds a compact `Logbook presets` panel inside the `New activity` modal.
+- Saves and applies named activity presets.
+- Includes baked-in starter presets.
+- Persists last-used activity selections locally.
+- Keeps the date persistent separately from presets.
+- Defaults blank dates to today only when no last-used date exists.
+- Adds a `Repeat previous` button.
+- Shows daily hour totals on logbook pages.
+- Defaults activity tables to `20` items per page.
+- Adds contract dashboard progress helpers:
+  - `Week X / Y`
+  - `X weeks remaining`
+  - `Client contact forecast: X / 172 hrs`
+  - `Client contact hours of 172 hrs`
+
+## Safety Notes
+
+This script is local-only and intentionally conservative.
+
+- It does not submit logbook activities automatically.
+- It does not call the SPTT Dashboard API.
+- It does not use `fetch`, `XMLHttpRequest`, or `GM_xmlhttpRequest`.
+- It does not read cookies, passwords, tokens, authentication headers, usernames, or emails.
+- Presets are stored locally with `GM_setValue`, falling back to `localStorage`.
+- Always review the form before clicking `Create activity`.
+
+This is not an official SPTT Dashboard tool. Use it at your own risk.
+
+## Install Tampermonkey
+
+1. Open your browser.
+2. Install Tampermonkey:
+   - Chrome / Edge: search for `Tampermonkey` in the Chrome Web Store.
+   - Firefox: search for `Tampermonkey` in Firefox Add-ons.
+3. After installing, pin the Tampermonkey extension if you want easy access.
+
+## Install This Script
+
+1. Open `logbook-presets.user.js` from this repository.
+2. Click `Raw`.
+3. Tampermonkey should open an install screen.
+4. Click `Install`.
+5. Go to the SPTT Dashboard.
+6. Open a contract or logbook page.
+
+The script runs on:
+
+```text
+https://sptt-dashboard.vercel.app/contracts/*
+https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
+```
+
+## Manual Install
+
+If the `Raw` install flow does not open Tampermonkey:
+
+1. Open Tampermonkey.
+2. Click `Create a new script`.
+3. Delete the default template.
+4. Paste the full contents of `logbook-presets.user.js`.
+5. Save.
+6. Reload the SPTT Dashboard page.
+
+## Using Presets
+
+1. Open a logbook.
+2. Click `New activity`.
+3. Use a baked-in preset, or fill the form manually.
+4. To save your current selections:
+   - Type a name into `Preset name`.
+   - Click `Save current`.
+5. To use a preset:
+   - Click the preset chip.
+   - Review the form.
+   - Manually click `Create activity`.
+
+Presets do not save or apply the date. The date is handled by last-used persistence.
+
+## Last-Used Date And Fields
+
+The script remembers your last-used fields locally. When you open `New activity`, it reapplies those values.
+
+The date is persistent, so if you last used `30/07/2026`, opening the modal again should keep that date rather than resetting to today.
+
+## Dashboard Targets
+
+The client contact target is currently configured as:
+
+```js
+clientContactTargetHours: 172
+```
+
+If your required minimum is different, change that value in `logbook-presets.user.js`.
+
+## Updating From GitHub
+
+If you installed through Tampermonkey from the `Raw` GitHub URL:
+
+1. Open Tampermonkey.
+2. Open the script.
+3. Use Tampermonkey's update/check-for-updates option if available.
+
+If you installed manually:
+
+1. Open the latest `logbook-presets.user.js` on GitHub.
+2. Click `Raw`.
+3. Copy the full script.
+4. Open the script in Tampermonkey.
+5. Replace the old contents.
+6. Save and reload the SPTT Dashboard.
+
+## Connecting To GitHub As A Contributor
+
+If you want to edit and push changes:
+
+1. Install Git: <https://git-scm.com/downloads>
+2. Clone the repo:
+
+```bash
+git clone https://github.com/e-bax/SPTT-Dashboard-Logbook-Presets.git
+cd SPTT-Dashboard-Logbook-Presets
+```
+
+3. Make changes.
+4. Check the diff:
+
+```bash
+git diff
+```
+
+5. Commit:
+
+```bash
+git add README.md logbook-presets.user.js
+git commit -m "Update logbook presets userscript"
+```
+
+6. Push:
+
+```bash
+git push
+```
+
+If GitHub asks you to authenticate, use GitHub's browser login or a personal access token. Do not commit tokens or credentials into the repository.
+
+## Files
+
+- `logbook-presets.user.js` - the Tampermonkey userscript.
+- `README.md` - install and usage instructions.
+
