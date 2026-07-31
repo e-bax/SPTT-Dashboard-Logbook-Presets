@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.5.0
+// @version      0.5.1
 // @description  Adds local-only presets, persistent last-used selections, daily totals, and page-size defaults. Never submits automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -151,6 +151,7 @@
   let openButtonListenerAttached = false;
   let dailyTotalsSignature = "";
   let enhancementTimer = 0;
+  let pageSizeDefaultInProgress = false;
 
   function log(...args) {
     if (CONFIG.debug) console.info(LOG_PREFIX, ...args);
@@ -614,29 +615,77 @@
     return readSelectedActivityDetail();
   }
 
+  function itemsPerPageContainers() {
+    return [...document.querySelectorAll("div, td, span, p")]
+      .filter(isVisible)
+      .filter((el) => /items\s+per\s+page\s*:?/i.test(el.textContent || ""))
+      .map((el) => el.closest("tr, [role='row'], div") || el)
+      .filter((el, index, list) => el && list.indexOf(el) === index);
+  }
+
+  function selectHasPageSizeOption(select) {
+    const values = [...select.options].map((option) => normalize(option.textContent || option.value));
+    return values.includes(CONFIG.defaultActivitiesPerPage) && (values.includes("5") || values.includes("10"));
+  }
+
   function isItemsPerPageControl(select) {
+    if (!selectHasPageSizeOption(select)) return false;
+    const containers = itemsPerPageContainers();
+    if (containers.some((container) => container.contains(select))) return true;
     const context = [select.closest("label")?.textContent, select.parentElement?.textContent, select.closest("div")?.textContent]
       .filter(Boolean)
       .join(" ");
     return /items\s+per\s+page/i.test(context);
   }
 
-  function defaultActivitiesItemsPerPage() {
+  async function defaultCustomItemsPerPage(container) {
+    const current = [...container.querySelectorAll("button, [role='button'], [aria-haspopup='listbox'], div[tabindex]")]
+      .filter(isVisible)
+      .find((el) => normalize(el.textContent) !== CONFIG.defaultActivitiesPerPage && /^\s*\d+\s*$/.test(el.textContent || ""));
+    if (!current) return false;
+
+    current.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    current.click();
+
+    const option = await waitForMutation(() => {
+      return optionCandidates().find((el) => normalize(el.textContent) === CONFIG.defaultActivitiesPerPage);
+    }, CONFIG.dropdownOpenTimeoutMs);
+
+    if (!option) return false;
+    option.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    option.click();
+    log(`Defaulted custom activities items per page to ${CONFIG.defaultActivitiesPerPage}.`);
+    return true;
+  }
+
+  async function defaultActivitiesItemsPerPage() {
+    if (pageSizeDefaultInProgress) return;
+    pageSizeDefaultInProgress = true;
     try {
       const selects = [...document.querySelectorAll("select")].filter(isVisible).filter(isItemsPerPageControl);
+      let changed = false;
       selects.forEach((select) => {
-        if (select.dataset.spttDefaultedPageSize === CONFIG.defaultActivitiesPerPage) return;
         const option = [...select.options].find((item) => normalize(item.textContent) === CONFIG.defaultActivitiesPerPage)
           || [...select.options].find((item) => normalize(item.value) === CONFIG.defaultActivitiesPerPage);
         if (!option) return;
         if (select.value !== option.value) {
           setNativeFieldValue(select, option.value);
+          changed = true;
           log(`Defaulted activities items per page to ${CONFIG.defaultActivitiesPerPage}.`);
         }
-        select.dataset.spttDefaultedPageSize = CONFIG.defaultActivitiesPerPage;
       });
+      if (changed) return;
+
+      for (const container of itemsPerPageContainers()) {
+        const text = normalize(container.textContent);
+        const alreadyDefaulted = new RegExp(`items\\s+per\\s+page\\s*:?\\s*${CONFIG.defaultActivitiesPerPage}\\b`, "i").test(text);
+        if (alreadyDefaulted) continue;
+        if (await defaultCustomItemsPerPage(container)) return;
+      }
     } catch (err) {
       error("Could not default activities items per page.", err);
+    } finally {
+      pageSizeDefaultInProgress = false;
     }
   }
 
