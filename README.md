@@ -2,6 +2,8 @@
 
 Unofficial Tampermonkey userscript for the SPTT Dashboard logbook pages.
 
+> **Access note:** SPTT Dashboard is not a public website. It is used for a specific university placement program only. Do not try to enrol in or request access to SPTT unless your university/course has explicitly directed you to use it; unrelated access requests will be denied.
+
 It adds local presets, persistent last-used activity selections, daily hour totals, dashboard progress indicators, and a default `20` rows per page setting for logbook activity tables.
 
 ## What It Does

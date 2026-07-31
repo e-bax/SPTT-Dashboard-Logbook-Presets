@@ -12,6 +12,8 @@
 // @run-at       document-idle
 // ==/UserScript==
 
+// Access note: SPTT Dashboard is not public. It is for a specific university placement program only.
+// Do not try to enrol in or request access to SPTT unless your university/course has explicitly directed you to use it.
 (function () {
   "use strict";
 
