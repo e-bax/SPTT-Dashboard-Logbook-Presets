@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.5.3
-// @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, fill-notes helper, and page-size defaults. Never submits automatically.
+// @version      0.5.4
+// @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes draft queue, and page-size defaults. Never submits automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
 // @downloadURL  https://raw.githubusercontent.com/e-bax/SPTT-Dashboard-Logbook-Presets/main/logbook-presets.user.js
@@ -23,13 +23,15 @@
     previousKey: "sptt.previousLogbookActivity.v1",
     lastUsedKey: "sptt.lastUsedLogbookSelections.v1",
     clientContactTargetKey: "sptt.clientContactTargetHours.v1",
+    notesQueueKey: "sptt.notesDraftQueue.v1",
     panelId: "sptt-logbook-presets-panel",
     dailyTotalsId: "sptt-daily-hours-tally",
     contractProgressId: "sptt-contract-progress",
     clientContactTargetId: "sptt-client-contact-target",
     maxPresets: 12,
     dailyTargetHours: 7.5,
-    fillDayNotesPresetNames: ["Notes 1hr", "Notes 2hr", "Notes 3hr", "Notes 0.5hr"],
+    fillDayNotesPresetNames: ["Notes 3hr", "Notes 2hr", "Notes 1hr", "Notes 0.5hr"],
+    fillDayNotesFallbackDurations: [3, 2, 1, 0.5],
     fillDayNotesFallbackValues: {
       deliveryType: "N/A",
       clientAge: "Adult",
@@ -638,43 +640,97 @@
     return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
   }
 
-  function formDateKey(root) {
-    const dateField = CONFIG.fields.find((field) => field.key === "date");
-    return parseDateKey(dateField ? readField(root, dateField) : "");
+  function dailyHourRows() {
+    const totals = new Map();
+    readRenderedActivities().forEach(({ date, hours }) => {
+      if (!date || !Number.isFinite(hours)) return;
+      totals.set(date, roundHours((totals.get(date) || 0) + hours));
+    });
+    return [...totals.entries()]
+      .map(([date, hours]) => ({
+        date,
+        hours,
+        remaining: roundHours(CONFIG.dailyTargetHours - hours),
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
   }
 
-  function totalHoursForDate(dateKey) {
-    return roundHours(readRenderedActivities()
-      .filter((activity) => activity.date === dateKey)
-      .reduce((sum, activity) => sum + activity.hours, 0));
-  }
-
-  function fillDayNotesBaseValues() {
+  function notesPresetCandidates() {
     const presets = readPresets();
-    const named = CONFIG.fillDayNotesPresetNames
+    const byConfiguredName = CONFIG.fillDayNotesPresetNames
       .map((name) => presets.find((preset) => normalize(preset.name) === normalize(name)))
-      .find(Boolean);
-    const notesLike = named || presets.find((preset) => {
+      .filter(Boolean);
+    const notesLike = presets.filter((preset) => {
       const values = preset.values || {};
       return normalize(values.sessionType).includes("notes") || normalize(values.description).includes("notes");
     });
-    return { ...(notesLike?.values || CONFIG.fillDayNotesFallbackValues) };
+    const seen = new Set();
+    return [...byConfiguredName, ...notesLike]
+      .filter((preset) => {
+        const key = normalize(preset.name);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((preset) => ({
+        preset,
+        duration: Number(preset.values?.duration),
+      }))
+      .filter((item) => Number.isFinite(item.duration) && item.duration > 0)
+      .sort((a, b) => b.duration - a.duration);
   }
 
-  async function fillDayWithNotes(root) {
-    const dateKey = formDateKey(root);
-    if (!dateKey) return { ok: false, message: "Choose a date first." };
+  function splitNoteDurations(remaining) {
+    let left = roundHours(remaining);
+    const presetDurations = notesPresetCandidates().map((item) => item.duration);
+    const durations = [...new Set([...presetDurations, ...CONFIG.fillDayNotesFallbackDurations])]
+      .filter((duration) => Number.isFinite(duration) && duration > 0)
+      .sort((a, b) => b - a);
+    const chunks = [];
+    durations.forEach((duration) => {
+      while (left >= duration - 0.001) {
+        chunks.push(duration);
+        left = roundHours(left - duration);
+      }
+    });
+    if (left > 0.001) chunks.push(left);
+    return chunks;
+  }
 
-    const existingTotal = totalHoursForDate(dateKey);
-    const remaining = roundHours(CONFIG.dailyTargetHours - existingTotal);
-    if (!Number.isFinite(remaining)) return { ok: false, message: "Could not read the day's current hours." };
-    if (remaining <= 0) return { ok: false, message: `${formatDateKey(dateKey)} is already ${existingTotal} hrs.` };
+  function valuesForNoteDuration(duration) {
+    const match = notesPresetCandidates().find((item) => Math.abs(item.duration - duration) < 0.001);
+    const values = { ...(match?.preset.values || CONFIG.fillDayNotesFallbackValues) };
+    values.duration = String(duration);
+    return values;
+  }
 
-    const values = fillDayNotesBaseValues();
-    values.duration = String(remaining);
-    await applyPresetValues(root, values);
+
+  function readNotesQueue() {
+    const queue = storageGet(CONFIG.notesQueueKey, []);
+    return Array.isArray(queue)
+      ? queue
+        .filter((item) => parseDateKey(item?.date) && Number.isFinite(Number(item?.duration)) && Number(item.duration) > 0)
+        .map((item) => ({ date: parseDateKey(item.date), duration: roundHours(Number(item.duration)) }))
+      : [];
+  }
+
+  function writeNotesQueue(queue) {
+    storageSet(CONFIG.notesQueueKey, queue.map((item) => ({ date: item.date, duration: roundHours(item.duration) })));
+  }
+
+  function dateValueForField(root, dateKey) {
+    const dateField = CONFIG.fields.find((field) => field.key === "date");
+    const native = dateField ? findNativeField(root, dateField) : null;
+    return native?.type === "date" ? dateKey : formatDateKey(dateKey);
+  }
+
+  async function applyNoteDraft(root, draft) {
+    const values = valuesForNoteDuration(draft.duration);
+    values.date = dateValueForField(root, draft.date);
+    await applyValues(root, values, { lastUsedOnly: false });
+    syncNativeFieldState(root, "date");
     syncNativeFieldState(root, "duration");
-    return { ok: true, message: `Filled notes: ${remaining} hrs remaining to ${CONFIG.dailyTargetHours}.` };
+    syncNativeFieldState(root, "description");
   }
 
   function itemsPerPageContainers() {
@@ -1110,19 +1166,83 @@
       }
     });
 
-    const fillNotes = button(`Fill notes to ${CONFIG.dailyTargetHours}h`);
-    fillNotes.title = "Fill this form with a Notes activity for the remaining hours on the selected date. It does not submit.";
-    fillNotes.addEventListener("click", async () => {
+    const noteDate = document.createElement("select");
+    noteDate.setAttribute("aria-label", "Notes date");
+    noteDate.title = "Choose the day to fill with Notes drafts.";
+    noteDate.style.cssText = `max-width:230px;padding:5px 8px;border:1px solid ${CONFIG.theme.accentBorder};border-radius:6px;min-height:30px;color:${CONFIG.theme.accentDark};background:white;`;
+
+    const refreshNoteDates = () => {
+      const previous = noteDate.value;
+      noteDate.textContent = "";
+      const rows = dailyHourRows().filter((item) => item.remaining > 0);
+      if (!rows.length) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = `No days below ${CONFIG.dailyTargetHours}h`;
+        noteDate.append(option);
+        return;
+      }
+      rows.forEach((item) => {
+        const option = document.createElement("option");
+        option.value = item.date;
+        option.textContent = `${formatDateKey(item.date)}: ${item.hours}h, add ${item.remaining}h`;
+        noteDate.append(option);
+      });
+      if (previous && [...noteDate.options].some((option) => option.value === previous)) noteDate.value = previous;
+    };
+
+    const buildNotesQueue = () => {
+      refreshNoteDates();
+      const selectedDate = noteDate.value;
+      const day = dailyHourRows().find((item) => item.date === selectedDate);
+      if (!day) return { ok: false, message: "Choose a date with visible daily totals first." };
+      if (day.remaining <= 0) return { ok: false, message: `${formatDateKey(day.date)} is already ${day.hours} hrs.` };
+      const queue = splitNoteDurations(day.remaining).map((duration) => ({ date: day.date, duration }));
+      writeNotesQueue(queue);
+      return { ok: true, message: `Queued ${queue.length} notes drafts for ${formatDateKey(day.date)}: ${queue.map((item) => `${item.duration}h`).join(", ")}.` };
+    };
+
+    const queueNotes = button("Queue notes");
+    queueNotes.title = "Create a local queue of Notes draft durations for the selected date. It does not submit.";
+    queueNotes.addEventListener("click", () => {
       try {
-        const result = await fillDayWithNotes(form);
+        const result = buildNotesQueue();
         status.textContent = result.message;
         if (result.ok) log(result.message);
         else error(result.message);
       } catch (err) {
-        status.textContent = "Could not fill notes.";
-        error("Could not fill notes to daily target.", err);
+        status.textContent = "Could not queue notes.";
+        error("Could not queue notes drafts.", err);
       }
     });
+
+    const fillNotes = button("Fill next note");
+    fillNotes.title = "Fill the next queued Notes draft. Review and submit manually, then reopen New activity and click again.";
+    fillNotes.addEventListener("click", async () => {
+      try {
+        let queue = readNotesQueue();
+        if (!queue.length) {
+          const built = buildNotesQueue();
+          if (!built.ok) {
+            status.textContent = built.message;
+            error(built.message);
+            return;
+          }
+          queue = readNotesQueue();
+        }
+        const [draft, ...remainingQueue] = queue;
+        await applyNoteDraft(form, draft);
+        writeNotesQueue(remainingQueue);
+        const remainingText = remainingQueue.length ? `${remainingQueue.length} queued` : "queue empty";
+        status.textContent = `Filled ${formatDateKey(draft.date)} notes draft: ${draft.duration}h (${remainingText}). Submit manually.`;
+        log(status.textContent);
+      } catch (err) {
+        status.textContent = "Could not fill next note.";
+        error("Could not fill next queued notes draft.", err);
+      }
+    });
+
+    refreshNoteDates();
 
     const copyPresets = button("Copy presets");
     copyPresets.addEventListener("click", async () => {
@@ -1136,7 +1256,7 @@
     });
 
     header.append(title, status);
-    row.append(nameInput, save, repeat, fillNotes, copyPresets);
+    row.append(nameInput, save, repeat, noteDate, queueNotes, fillNotes, copyPresets);
     panel.append(header, presetList, row);
     refreshPresets();
 

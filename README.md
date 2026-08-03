@@ -17,7 +17,7 @@ It adds local presets, persistent last-used activity selections, daily hour tota
 - Adds a `Repeat previous` button.
 - Shows daily hour totals with activity-type breakdowns on logbook pages.
 - Defaults activity tables to `20` items per page.
-- Adds a manual `Fill notes to 7.5h` helper that fills a Notes activity for the remaining hours on the selected date.
+- Adds a manual notes draft queue that splits the remaining hours for a selected date into Notes activities.
 - Adds contract dashboard progress helpers:
   - `Week X / Y`
   - `X weeks remaining`
@@ -34,7 +34,7 @@ This script is local-only and intentionally conservative.
 - It does not read cookies, passwords, tokens, authentication headers, usernames, or emails.
 - Presets are stored locally with `GM_setValue`, falling back to `localStorage`.
 - Always review the form before clicking `Create activity`.
-- The `Fill notes to 7.5h` helper fills values only; it does not create or submit the activity.
+- The notes queue fills values only; it does not create or submit activities.
 
 This is not an official SPTT Dashboard tool. Use it at your own risk.
 
@@ -77,14 +77,17 @@ If the `Raw` install flow does not open Tampermonkey:
 
 Use this after manually entering your real client contact and supervision activities for the day.
 
-1. Open `New activity` for the same date.
-2. Click `Fill notes to 7.5h`.
-3. The script totals the visible activities for that date.
-4. It fills the form with a Notes-style activity for the remaining hours to reach `7.5`.
-5. Review the form yourself.
+1. Open `New activity`.
+2. Choose the date from the orange notes date dropdown. The options come from the visible daily totals.
+3. Click `Queue notes` to split the remaining time to `7.5` into Notes draft chunks, using your available Notes preset durations where possible.
+4. Click `Fill next note`.
+5. Review the filled activity yourself.
 6. Click `Create activity` manually only if it is correct.
+7. Reopen `New activity` and click `Fill next note` again until the queue is empty.
 
-The helper uses your baked/local Notes presets where possible, then overrides only the duration. If no Notes preset is available, it falls back to the configured Notes dropdown values in `CONFIG.fillDayNotesFallbackValues`.
+The queue is stored locally and contains only dates and durations. It does not submit automatically. If the visible daily totals change or the queue looks wrong, click `Queue notes` again for the selected date to rebuild it.
+
+The helper uses your baked/local Notes presets where possible. If no matching Notes preset duration is available, it falls back to the configured Notes dropdown values in `CONFIG.fillDayNotesFallbackValues` and the durations in `CONFIG.fillDayNotesFallbackDurations`.
 
 ## Using Presets
 
