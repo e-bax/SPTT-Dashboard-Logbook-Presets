@@ -4,7 +4,7 @@ Unofficial Tampermonkey userscript for the SPTT Dashboard logbook pages.
 
 > **Access note:** SPTT Dashboard is not a public website. It is used for a specific university placement program only. Do not try to enrol in or request access to SPTT unless your university/course has explicitly directed you to use it; unrelated access requests will be denied.
 
-It adds local presets, persistent last-used activity selections, daily hour totals, dashboard progress indicators, and a default `20` rows per page setting for logbook activity tables.
+It adds local presets, persistent last-used activity selections, daily hour totals, dashboard progress indicators, planned Notes activity creation, and a default `20` rows per page setting for logbook activity tables.
 
 ## What It Does
 
@@ -17,7 +17,7 @@ It adds local presets, persistent last-used activity selections, daily hour tota
 - Adds a `Repeat previous` button.
 - Shows daily hour totals with activity-type breakdowns on logbook pages.
 - Defaults activity tables to `20` items per page.
-- Adds a manual notes draft queue that splits the remaining hours for a selected date into Notes activities.
+- Plans and creates Notes activities to fill a selected date to `7.5` hours.
 - Adds contract dashboard progress helpers:
   - `Week X / Y`
   - `X weeks remaining`
@@ -28,13 +28,13 @@ It adds local presets, persistent last-used activity selections, daily hour tota
 
 This script is local-only and intentionally conservative.
 
-- It does not submit logbook activities automatically.
+- It does not submit the logbook automatically.
 - It does not call the SPTT Dashboard API.
 - It does not use `fetch`, `XMLHttpRequest`, or `GM_xmlhttpRequest`.
 - It does not read cookies, passwords, tokens, authentication headers, usernames, or emails.
 - Presets are stored locally with `GM_setValue`, falling back to `localStorage`.
-- Always review the form before clicking `Create activity`.
-- The notes queue fills values only; it does not create or submit activities.
+- The planned Notes helper may click `Create activity` for Notes drafts only.
+- It must never click `Submit logbook`; logbook submission remains manual.
 
 This is not an official SPTT Dashboard tool. Use it at your own risk.
 
@@ -79,15 +79,17 @@ Use this after manually entering your real client contact and supervision activi
 
 1. Open `New activity`.
 2. Choose the date from the orange notes date dropdown. The options come from the visible daily totals.
-3. Click `Queue notes` to split the remaining time to `7.5` into Notes draft chunks, using your available Notes preset durations where possible.
-4. Click `Fill next note`.
-5. Review the filled activity yourself.
-6. Click `Create activity` manually only if it is correct.
-7. Reopen `New activity` and click `Fill next note` again until the queue is empty.
+3. Click `Plan notes` to split the remaining time to `7.5` into Notes chunks, using your available Notes preset durations where possible.
+4. Click `Create planned notes`.
+5. The script fills each planned Notes activity and clicks `Create activity` for those Notes drafts.
+6. Review the created activities in the logbook table.
+7. Submit the logbook manually only when you are satisfied.
 
-The queue is stored locally and contains only dates and durations. It does not submit automatically. If the visible daily totals change or the queue looks wrong, click `Queue notes` again for the selected date to rebuild it.
+The queue is stored locally and contains only dates and durations. If the visible daily totals change or the plan looks wrong, click `Plan notes` again for the selected date to rebuild it.
 
 The helper uses your baked/local Notes presets where possible. If no matching Notes preset duration is available, it falls back to the configured Notes dropdown values in `CONFIG.fillDayNotesFallbackValues` and the durations in `CONFIG.fillDayNotesFallbackDurations`.
+
+This helper may click `Create activity`, but it must never click `Submit logbook`.
 
 ## Using Presets
 

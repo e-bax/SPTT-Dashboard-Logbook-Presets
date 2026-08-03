@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.5.4
-// @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes draft queue, and page-size defaults. Never submits automatically.
+// @version      0.5.5
+// @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
 // @downloadURL  https://raw.githubusercontent.com/e-bax/SPTT-Dashboard-Logbook-Presets/main/logbook-presets.user.js
@@ -144,7 +144,10 @@
     defaultDateToToday: true,
     autoApplyLastUsedSelections: true,
     persistLastUsedOnChange: true,
-    neverSubmitAutomatically: true,
+    autoCreateQueuedNotes: true,
+    maxQueuedNotesAutoCreates: 12,
+    createActivitySettleMs: 650,
+    neverSubmitLogbookAutomatically: true,
     fields: [
       { key: "date", label: "Date", names: ["date"], type: "date", persistPreset: false },
       { key: "deliveryType", label: "Delivery type", names: ["deliveryType"] },
@@ -495,6 +498,53 @@
         scheduleLastUsedApply("New activity click");
       }
     }, true);
+  }
+
+
+  function sleep(ms) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  function clickableText(el) {
+    return normalize(el?.textContent || el?.getAttribute?.("aria-label") || el?.getAttribute?.("title") || "");
+  }
+
+  function visibleClickables(root = document) {
+    return [...root.querySelectorAll("button, a, [role='button'], input[type='button'], input[type='submit']")]
+      .filter(isVisible);
+  }
+
+  function findNewActivityButton() {
+    return visibleClickables(document).find((el) => /^new activity\b/i.test((el.textContent || el.value || "").trim()));
+  }
+
+  function findCreateActivityButton(root) {
+    const modal = findModalForForm(root) || root;
+    return visibleClickables(modal).find((el) => {
+      const text = clickableText(el) || normalize(el.value || "");
+      if (/submit\s+logbook|logbook\s+submit/i.test(text)) return false;
+      return /^create\s+activity$/i.test(text) || /\bcreate\s+activity\b/i.test(text);
+    });
+  }
+
+  async function openActivityModal() {
+    const existing = findActivityForm();
+    if (existing) return existing;
+    const trigger = findNewActivityButton();
+    if (!trigger) return null;
+    trigger.click();
+    return await waitForMutation(findActivityForm, CONFIG.renderTimeoutMs);
+  }
+
+  async function clickCreateActivity(root) {
+    const button = findCreateActivityButton(root);
+    if (!button) return { ok: false, message: "Could not find the Create activity button." };
+    const text = clickableText(button) || normalize(button.value || "");
+    if (/submit\s+logbook|logbook\s+submit/i.test(text)) return { ok: false, message: "Refused to click a logbook submit control." };
+    button.click();
+    const closed = await waitForMutation(() => (!document.body.contains(root) || !isVisible(root)) ? true : null, 5000);
+    if (!closed) return { ok: false, message: "Create activity was clicked, but the modal did not close. Check validation messages before continuing." };
+    return { ok: true, message: "Created activity draft." };
   }
 
   function persistLastUsedSoon(form) {
@@ -879,6 +929,36 @@
     }
   }
 
+
+  async function createQueuedNotes(form, buildNotesQueue) {
+    if (!CONFIG.autoCreateQueuedNotes) return { ok: false, message: "Auto-create queued notes is disabled in CONFIG." };
+    let queue = readNotesQueue();
+    if (!queue.length) {
+      const built = buildNotesQueue();
+      if (!built.ok) return built;
+      queue = readNotesQueue();
+    }
+    if (!queue.length) return { ok: false, message: "No queued notes drafts found." };
+
+    let created = 0;
+    while (queue.length && created < CONFIG.maxQueuedNotesAutoCreates) {
+      const currentForm = findActivityForm() || await openActivityModal();
+      if (!currentForm) return { ok: false, message: `Created ${created}; could not reopen New activity for remaining drafts.` };
+      const [draft, ...remainingQueue] = queue;
+      await applyNoteDraft(currentForm, draft);
+      await sleep(150);
+      const result = await clickCreateActivity(currentForm);
+      if (!result.ok) return { ok: false, message: `Created ${created}; ${result.message}` };
+      queue = remainingQueue;
+      writeNotesQueue(queue);
+      created += 1;
+      if (queue.length) await sleep(CONFIG.createActivitySettleMs);
+    }
+
+    if (queue.length) return { ok: false, message: `Created ${created}; stopped with ${queue.length} still queued. Increase maxQueuedNotesAutoCreates if intended.` };
+    return { ok: true, message: `Created ${created} queued notes activities. Do not forget: logbook submit is still manual.` };
+  }
+
   function presetChip(name, onApply, onDelete) {
     const wrap = document.createElement("span");
     wrap.style.cssText = `display:inline-flex;align-items:center;border:1px solid ${CONFIG.theme.accentBorder};border-radius:999px;background:white;overflow:hidden;color:${CONFIG.theme.accentDark};`;
@@ -1202,43 +1282,37 @@
       return { ok: true, message: `Queued ${queue.length} notes drafts for ${formatDateKey(day.date)}: ${queue.map((item) => `${item.duration}h`).join(", ")}.` };
     };
 
-    const queueNotes = button("Queue notes");
-    queueNotes.title = "Create a local queue of Notes draft durations for the selected date. It does not submit.";
-    queueNotes.addEventListener("click", () => {
+    const planNotes = button("Plan notes");
+    planNotes.title = "Plan Notes activity durations for the selected date. It does not create anything.";
+    planNotes.addEventListener("click", () => {
       try {
         const result = buildNotesQueue();
         status.textContent = result.message;
         if (result.ok) log(result.message);
         else error(result.message);
       } catch (err) {
-        status.textContent = "Could not queue notes.";
-        error("Could not queue notes drafts.", err);
+        status.textContent = "Could not plan notes.";
+        error("Could not plan notes drafts.", err);
       }
     });
 
-    const fillNotes = button("Fill next note");
-    fillNotes.title = "Fill the next queued Notes draft. Review and submit manually, then reopen New activity and click again.";
-    fillNotes.addEventListener("click", async () => {
+    const createNotes = button("Create planned notes");
+    createNotes.title = "Create the planned Notes activities. This may click Create activity, but it never clicks Submit logbook.";
+    createNotes.addEventListener("click", async () => {
       try {
-        let queue = readNotesQueue();
-        if (!queue.length) {
-          const built = buildNotesQueue();
-          if (!built.ok) {
-            status.textContent = built.message;
-            error(built.message);
-            return;
-          }
-          queue = readNotesQueue();
-        }
-        const [draft, ...remainingQueue] = queue;
-        await applyNoteDraft(form, draft);
-        writeNotesQueue(remainingQueue);
-        const remainingText = remainingQueue.length ? `${remainingQueue.length} queued` : "queue empty";
-        status.textContent = `Filled ${formatDateKey(draft.date)} notes draft: ${draft.duration}h (${remainingText}). Submit manually.`;
-        log(status.textContent);
+        createNotes.disabled = true;
+        createNotes.style.opacity = ".65";
+        const result = await createQueuedNotes(form, buildNotesQueue);
+        status.textContent = result.message;
+        if (result.ok) log(result.message);
+        else error(result.message);
       } catch (err) {
-        status.textContent = "Could not fill next note.";
-        error("Could not fill next queued notes draft.", err);
+        status.textContent = "Could not create planned notes.";
+        error("Could not create planned notes activities.", err);
+      } finally {
+        createNotes.disabled = false;
+        createNotes.style.opacity = "";
+        refreshNoteDates();
       }
     });
 
@@ -1256,7 +1330,7 @@
     });
 
     header.append(title, status);
-    row.append(nameInput, save, repeat, noteDate, queueNotes, fillNotes, copyPresets);
+    row.append(nameInput, save, repeat, noteDate, planNotes, createNotes, copyPresets);
     panel.append(header, presetList, row);
     refreshPresets();
 
@@ -1265,7 +1339,7 @@
         const values = currentValues(form);
         writePrevious(values);
         writeLastUsed(values);
-        log("Stored previous activity values from manual submit. The userscript did not submit the form.");
+        log("Stored previous activity values from Create activity form submit.");
       } catch (err) {
         error("Could not store previous activity values on manual submit.", err);
       }
