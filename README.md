@@ -77,14 +77,13 @@ If the `Raw` install flow does not open Tampermonkey:
 Use this after manually entering your real client contact and supervision activities for the day.
 
 1. Open `New activity`.
-2. Choose the date from the orange notes date dropdown. The options come from the visible daily totals.
-3. Click `Plan notes` to split the remaining time to `7.5` into Notes chunks, using your available Notes preset durations where possible.
-4. Click `Create planned notes`.
-5. The script fills each planned Notes activity and clicks `Create activity` for those Notes drafts.
-6. Review the created activities in the logbook table.
-7. Submit the logbook manually only when you are satisfied.
+2. Choose the day in the clearly labeled `Notes date` dropdown. The options come from the visible daily totals.
+3. Click `Create notes to 7.5h`.
+4. The script plans the missing Notes chunks, fills each planned Notes activity, and clicks `Create activity` for those Notes drafts.
+5. Review the created activities in the logbook table.
+6. Submit the logbook manually only when you are satisfied.
 
-The queue is stored locally and contains only dates and durations. If the visible daily totals change or the plan looks wrong, click `Plan notes` again for the selected date to rebuild it.
+The queue is stored locally and contains only dates and durations. If the visible daily totals change or the created activities look wrong, review the table before manually submitting the logbook.
 
 The helper uses your baked/local Notes presets where possible. If no matching Notes preset duration is available, it falls back to the configured Notes dropdown values in `CONFIG.fillDayNotesFallbackValues` and the durations in `CONFIG.fillDayNotesFallbackDurations`.
 

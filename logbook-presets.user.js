@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.5.6
+// @version      0.5.7
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -1231,9 +1231,13 @@
       }
     });
 
+    const noteDateGroup = document.createElement("label");
+    noteDateGroup.style.cssText = `display:flex;align-items:center;gap:5px;color:${CONFIG.theme.accentDark};font-weight:600;`;
+    const noteDateLabel = document.createElement("span");
+    noteDateLabel.textContent = "Notes date";
     const noteDate = document.createElement("select");
-    noteDate.setAttribute("aria-label", "Notes date");
-    noteDate.title = "Choose the day to fill with Notes drafts.";
+    noteDate.setAttribute("aria-label", "Notes date to fill");
+    noteDate.title = "Choose the day to fill with Notes activities.";
     noteDate.style.cssText = `max-width:230px;padding:5px 8px;border:1px solid ${CONFIG.theme.accentBorder};border-radius:6px;min-height:30px;color:${CONFIG.theme.accentDark};background:white;`;
 
     const refreshNoteDates = () => {
@@ -1267,22 +1271,8 @@
       return { ok: true, message: `Queued ${queue.length} notes drafts for ${formatDateKey(day.date)}: ${queue.map((item) => `${item.duration}h`).join(", ")}.` };
     };
 
-    const planNotes = button("Plan notes");
-    planNotes.title = "Plan Notes activity durations for the selected date. It does not create anything.";
-    planNotes.addEventListener("click", () => {
-      try {
-        const result = buildNotesQueue();
-        status.textContent = result.message;
-        if (result.ok) log(result.message);
-        else error(result.message);
-      } catch (err) {
-        status.textContent = "Could not plan notes.";
-        error("Could not plan notes drafts.", err);
-      }
-    });
-
-    const createNotes = button("Create planned notes");
-    createNotes.title = "Create the planned Notes activities. This may click Create activity, but it never clicks Submit logbook.";
+    const createNotes = button(`Create notes to ${CONFIG.dailyTargetHours}h`);
+    createNotes.title = "Plan and create Notes activities for the selected date. This may click Create activity, but it never clicks Submit logbook.";
     createNotes.addEventListener("click", async () => {
       try {
         createNotes.disabled = true;
@@ -1292,8 +1282,8 @@
         if (result.ok) log(result.message);
         else error(result.message);
       } catch (err) {
-        status.textContent = "Could not create planned notes.";
-        error("Could not create planned notes activities.", err);
+        status.textContent = "Could not create notes.";
+        error("Could not create notes activities.", err);
       } finally {
         createNotes.disabled = false;
         createNotes.style.opacity = "";
@@ -1302,9 +1292,10 @@
     });
 
     refreshNoteDates();
+    noteDateGroup.append(noteDateLabel, noteDate);
 
     header.append(title, status);
-    row.append(nameInput, save, noteDate, planNotes, createNotes);
+    row.append(nameInput, save, noteDateGroup, createNotes);
     panel.append(header, presetList, row);
     refreshPresets();
 
