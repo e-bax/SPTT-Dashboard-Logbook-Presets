@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.5.2
-// @description  Adds local-only presets, persistent last-used selections, daily totals, fill-notes helper, and page-size defaults. Never submits automatically.
+// @version      0.5.3
+// @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, fill-notes helper, and page-size defaults. Never submits automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
 // @downloadURL  https://raw.githubusercontent.com/e-bax/SPTT-Dashboard-Logbook-Presets/main/logbook-presets.user.js
@@ -599,12 +599,14 @@
       const headers = [...table.querySelectorAll("thead th, thead [role='columnheader'], tr:first-child th")].map((cell) => normalize(cell.textContent));
       const dateIndex = headers.findIndex((header) => header === "date" || header.includes("date"));
       const durationIndex = headers.findIndex((header) => header.includes("duration") || header.includes("hours"));
+      const typeIndex = headers.findIndex((header) => header.includes("activity type") || header === "type");
       if (dateIndex < 0 || durationIndex < 0) return;
       table.querySelectorAll("tbody tr").forEach((row) => {
         const cells = [...row.children];
         const date = parseDateKey(cells[dateIndex]?.textContent || "");
         const hours = parseHours(cells[durationIndex]?.textContent || "");
-        if (date && Number.isFinite(hours)) activities.push({ date, hours });
+        const type = typeIndex >= 0 ? (cells[typeIndex]?.textContent || "").trim() : "";
+        if (date && Number.isFinite(hours)) activities.push({ date, hours, type });
       });
     });
     return activities;
@@ -620,7 +622,9 @@
     const date = parseDateKey(text);
     const durationMatch = text.match(/Duration \(hours\)\s*:?\s*(-?\d+(?:\.\d+)?)/i);
     const hours = durationMatch ? Number(durationMatch[1]) : NaN;
-    return date && Number.isFinite(hours) ? [{ date, hours }] : [];
+    const typeMatch = text.match(/Activity type\s*:?\s*(.*?)(?:Place of practice|Duration \(hours\)|$)/i);
+    const type = typeMatch ? typeMatch[1].trim() : "";
+    return date && Number.isFinite(hours) ? [{ date, hours, type }] : [];
   }
 
   function readRenderedActivities() {
@@ -758,8 +762,22 @@
         return;
       }
       const totals = new Map();
-      activities.forEach(({ date, hours }) => totals.set(date, (totals.get(date) || 0) + hours));
-      const rows = [...totals.entries()].sort(([a], [b]) => a.localeCompare(b));
+      activities.forEach(({ date, hours, type }) => {
+        if (!totals.has(date)) totals.set(date, { hours: 0, types: new Map() });
+        const item = totals.get(date);
+        const label = (type || "Unspecified").trim() || "Unspecified";
+        item.hours += hours;
+        item.types.set(label, (item.types.get(label) || 0) + hours);
+      });
+      const rows = [...totals.entries()]
+        .map(([date, item]) => ({
+          date,
+          hours: roundHours(item.hours),
+          types: [...item.types.entries()]
+            .map(([type, hours]) => [type, roundHours(hours)])
+            .sort(([a], [b]) => a.localeCompare(b)),
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date));
       const signature = JSON.stringify(rows);
       if (panel?.dataset.signature === signature) return;
       dailyTotalsSignature = signature;
@@ -781,16 +799,23 @@
       title.style.cssText = `font-weight:600;margin:2px 0 3px;color:${CONFIG.theme.accentDark};`;
       panel.append(title);
 
-      rows.forEach(([date, hours]) => {
+      rows.forEach(({ date, hours, types }) => {
         const row = document.createElement("div");
-        row.style.cssText = "display:flex;gap:8px;align-items:center;justify-content:space-between;max-width:220px;";
+        row.style.cssText = "max-width:360px;margin:0 0 5px;";
+        const summary = document.createElement("div");
+        summary.style.cssText = "display:flex;gap:8px;align-items:center;justify-content:space-between;";
         const label = document.createElement("span");
         label.textContent = formatDateKey(date);
         label.style.cssText = `color:${CONFIG.theme.accent};`;
         const value = document.createElement("strong");
         value.textContent = `${Number(hours.toFixed(2))} hrs`;
         value.style.cssText = `color:${CONFIG.theme.accentDark};`;
-        row.append(label, value);
+        summary.append(label, value);
+
+        const breakdown = document.createElement("div");
+        breakdown.style.cssText = `margin-top:1px;font-size:12px;color:${CONFIG.theme.accentDark};opacity:.9;`;
+        breakdown.textContent = types.map(([type, typeHours]) => `${type}: ${Number(typeHours.toFixed(2))} hrs`).join(" | ");
+        row.append(summary, breakdown);
         panel.append(row);
       });
     } catch (err) {

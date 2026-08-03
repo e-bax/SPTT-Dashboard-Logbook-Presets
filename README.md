@@ -15,7 +15,7 @@ It adds local presets, persistent last-used activity selections, daily hour tota
 - Keeps the date persistent separately from presets.
 - Defaults blank dates to today only when no last-used date exists.
 - Adds a `Repeat previous` button.
-- Shows daily hour totals on logbook pages.
+- Shows daily hour totals with activity-type breakdowns on logbook pages.
 - Defaults activity tables to `20` items per page.
 - Adds a manual `Fill notes to 7.5h` helper that fills a Notes activity for the remaining hours on the selected date.
 - Adds contract dashboard progress helpers:
