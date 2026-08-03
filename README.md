@@ -17,6 +17,7 @@ It adds local presets, persistent last-used activity selections, daily hour tota
 - Adds a `Repeat previous` button.
 - Shows daily hour totals on logbook pages.
 - Defaults activity tables to `20` items per page.
+- Adds a manual `Fill notes to 7.5h` helper that fills a Notes activity for the remaining hours on the selected date.
 - Adds contract dashboard progress helpers:
   - `Week X / Y`
   - `X weeks remaining`
@@ -33,6 +34,7 @@ This script is local-only and intentionally conservative.
 - It does not read cookies, passwords, tokens, authentication headers, usernames, or emails.
 - Presets are stored locally with `GM_setValue`, falling back to `localStorage`.
 - Always review the form before clicking `Create activity`.
+- The `Fill notes to 7.5h` helper fills values only; it does not create or submit the activity.
 
 This is not an official SPTT Dashboard tool. Use it at your own risk.
 
@@ -70,6 +72,19 @@ If the `Raw` install flow does not open Tampermonkey:
 4. Paste the full contents of `logbook-presets.user.js`.
 5. Save.
 6. Reload the SPTT Dashboard page.
+
+## Fill Notes To 7.5 Hours
+
+Use this after manually entering your real client contact and supervision activities for the day.
+
+1. Open `New activity` for the same date.
+2. Click `Fill notes to 7.5h`.
+3. The script totals the visible activities for that date.
+4. It fills the form with a Notes-style activity for the remaining hours to reach `7.5`.
+5. Review the form yourself.
+6. Click `Create activity` manually only if it is correct.
+
+The helper uses your baked/local Notes presets where possible, then overrides only the duration. If no Notes preset is available, it falls back to the configured Notes dropdown values in `CONFIG.fillDayNotesFallbackValues`.
 
 ## Using Presets
 

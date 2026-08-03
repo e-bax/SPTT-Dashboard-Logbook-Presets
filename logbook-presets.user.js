@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.5.1
-// @description  Adds local-only presets, persistent last-used selections, daily totals, and page-size defaults. Never submits automatically.
+// @version      0.5.2
+// @description  Adds local-only presets, persistent last-used selections, daily totals, fill-notes helper, and page-size defaults. Never submits automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
 // @downloadURL  https://raw.githubusercontent.com/e-bax/SPTT-Dashboard-Logbook-Presets/main/logbook-presets.user.js
@@ -28,6 +28,18 @@
     contractProgressId: "sptt-contract-progress",
     clientContactTargetId: "sptt-client-contact-target",
     maxPresets: 12,
+    dailyTargetHours: 7.5,
+    fillDayNotesPresetNames: ["Notes 1hr", "Notes 2hr", "Notes 3hr", "Notes 0.5hr"],
+    fillDayNotesFallbackValues: {
+      deliveryType: "N/A",
+      clientAge: "Adult",
+      sessionType: "Notes",
+      placeOfPractice: "External",
+      activityType: "Client Related Activities",
+      primaryComp: "Discipline Knowledge",
+      secondComp: "Intervention",
+      description: "Notes",
+    },
     bakedPresets: [
       {
         name: "sup indiv",
@@ -617,6 +629,50 @@
     return readSelectedActivityDetail();
   }
 
+
+  function roundHours(value) {
+    return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+  }
+
+  function formDateKey(root) {
+    const dateField = CONFIG.fields.find((field) => field.key === "date");
+    return parseDateKey(dateField ? readField(root, dateField) : "");
+  }
+
+  function totalHoursForDate(dateKey) {
+    return roundHours(readRenderedActivities()
+      .filter((activity) => activity.date === dateKey)
+      .reduce((sum, activity) => sum + activity.hours, 0));
+  }
+
+  function fillDayNotesBaseValues() {
+    const presets = readPresets();
+    const named = CONFIG.fillDayNotesPresetNames
+      .map((name) => presets.find((preset) => normalize(preset.name) === normalize(name)))
+      .find(Boolean);
+    const notesLike = named || presets.find((preset) => {
+      const values = preset.values || {};
+      return normalize(values.sessionType).includes("notes") || normalize(values.description).includes("notes");
+    });
+    return { ...(notesLike?.values || CONFIG.fillDayNotesFallbackValues) };
+  }
+
+  async function fillDayWithNotes(root) {
+    const dateKey = formDateKey(root);
+    if (!dateKey) return { ok: false, message: "Choose a date first." };
+
+    const existingTotal = totalHoursForDate(dateKey);
+    const remaining = roundHours(CONFIG.dailyTargetHours - existingTotal);
+    if (!Number.isFinite(remaining)) return { ok: false, message: "Could not read the day's current hours." };
+    if (remaining <= 0) return { ok: false, message: `${formatDateKey(dateKey)} is already ${existingTotal} hrs.` };
+
+    const values = fillDayNotesBaseValues();
+    values.duration = String(remaining);
+    await applyPresetValues(root, values);
+    syncNativeFieldState(root, "duration");
+    return { ok: true, message: `Filled notes: ${remaining} hrs remaining to ${CONFIG.dailyTargetHours}.` };
+  }
+
   function itemsPerPageContainers() {
     return [...document.querySelectorAll("div, td, span, p")]
       .filter(isVisible)
@@ -1029,6 +1085,20 @@
       }
     });
 
+    const fillNotes = button(`Fill notes to ${CONFIG.dailyTargetHours}h`);
+    fillNotes.title = "Fill this form with a Notes activity for the remaining hours on the selected date. It does not submit.";
+    fillNotes.addEventListener("click", async () => {
+      try {
+        const result = await fillDayWithNotes(form);
+        status.textContent = result.message;
+        if (result.ok) log(result.message);
+        else error(result.message);
+      } catch (err) {
+        status.textContent = "Could not fill notes.";
+        error("Could not fill notes to daily target.", err);
+      }
+    });
+
     const copyPresets = button("Copy presets");
     copyPresets.addEventListener("click", async () => {
       try {
@@ -1041,7 +1111,7 @@
     });
 
     header.append(title, status);
-    row.append(nameInput, save, repeat, copyPresets);
+    row.append(nameInput, save, repeat, fillNotes, copyPresets);
     panel.append(header, presetList, row);
     refreshPresets();
 
