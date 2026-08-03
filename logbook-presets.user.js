@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.5.5
+// @version      0.5.6
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -1231,21 +1231,6 @@
       }
     });
 
-    const repeat = button("Repeat previous");
-    repeat.addEventListener("click", async () => {
-      try {
-        const previous = readPrevious();
-        if (!previous) {
-          error("No previous activity has been stored yet. Save a preset, apply one, or manually submit once to record the previous values.");
-          return;
-        }
-        await applyValues(form, previous);
-        log("Repeated previous activity values.");
-      } catch (err) {
-        error("Could not repeat previous activity.", err);
-      }
-    });
-
     const noteDate = document.createElement("select");
     noteDate.setAttribute("aria-label", "Notes date");
     noteDate.title = "Choose the day to fill with Notes drafts.";
@@ -1318,19 +1303,8 @@
 
     refreshNoteDates();
 
-    const copyPresets = button("Copy presets");
-    copyPresets.addEventListener("click", async () => {
-      try {
-        const json = JSON.stringify(readPresets(), null, 2);
-        await navigator.clipboard.writeText(json);
-        log("Copied presets JSON for baking into CONFIG.bakedPresets.");
-      } catch (err) {
-        error("Could not copy presets JSON. Check browser clipboard permission, then inspect readPresets() in the console.", err);
-      }
-    });
-
     header.append(title, status);
-    row.append(nameInput, save, repeat, noteDate, planNotes, createNotes, copyPresets);
+    row.append(nameInput, save, noteDate, planNotes, createNotes);
     panel.append(header, presetList, row);
     refreshPresets();
 
