@@ -77,9 +77,9 @@ If the `Raw` install flow does not open Tampermonkey:
 Use this after manually entering your real client contact and supervision activities for the day.
 
 1. Open `New activity`.
-2. Choose the day in the clearly labeled `Notes date` dropdown. The options come from the visible daily totals.
-3. Click `Create notes to 7.5h`.
-4. The script plans the missing Notes chunks, fills each planned Notes activity, and clicks `Create activity` for those Notes drafts.
+2. Choose the day in the clearly labeled `Day to fill` dropdown. The options come from the visible daily totals.
+3. Click `Fill selected day with notes`.
+4. The script calculates the missing Notes chunks, fills each planned Notes activity, and clicks `Create activity` for those Notes drafts.
 5. Review the created activities in the logbook table.
 6. Submit the logbook manually only when you are satisfied.
 

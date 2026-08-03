@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.5.7
+// @version      0.5.8
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -1158,6 +1158,10 @@
     title.style.cssText = `font-weight:700;color:${CONFIG.theme.accentDark};`;
     const status = document.createElement("span");
     status.style.cssText = `color:${CONFIG.theme.accent};font-size:12px;`;
+    const content = document.createElement("div");
+    content.style.cssText = "display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;";
+    const presetsColumn = document.createElement("div");
+    presetsColumn.style.cssText = "flex:1 1 430px;min-width:280px;";
     const presetList = document.createElement("div");
     presetList.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap;min-height:30px;margin-bottom:7px;";
     const row = document.createElement("div");
@@ -1231,10 +1235,17 @@
       }
     });
 
+    const notesSection = document.createElement("div");
+    notesSection.style.cssText = `flex:0 1 360px;min-width:270px;margin-left:auto;padding-left:12px;border-left:1px solid ${CONFIG.theme.accentBorder};display:flex;flex-direction:column;gap:7px;`;
+    const notesTitle = document.createElement("div");
+    notesTitle.textContent = "Fill day with notes";
+    notesTitle.style.cssText = `font-weight:700;color:${CONFIG.theme.accentDark};`;
+    const notesControls = document.createElement("div");
+    notesControls.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap;";
     const noteDateGroup = document.createElement("label");
     noteDateGroup.style.cssText = `display:flex;align-items:center;gap:5px;color:${CONFIG.theme.accentDark};font-weight:600;`;
     const noteDateLabel = document.createElement("span");
-    noteDateLabel.textContent = "Notes date";
+    noteDateLabel.textContent = "Day to fill";
     const noteDate = document.createElement("select");
     noteDate.setAttribute("aria-label", "Notes date to fill");
     noteDate.title = "Choose the day to fill with Notes activities.";
@@ -1271,8 +1282,8 @@
       return { ok: true, message: `Queued ${queue.length} notes drafts for ${formatDateKey(day.date)}: ${queue.map((item) => `${item.duration}h`).join(", ")}.` };
     };
 
-    const createNotes = button(`Create notes to ${CONFIG.dailyTargetHours}h`);
-    createNotes.title = "Plan and create Notes activities for the selected date. This may click Create activity, but it never clicks Submit logbook.";
+    const createNotes = button("Fill selected day with notes");
+    createNotes.title = `Create Notes activities to bring the selected day up to ${CONFIG.dailyTargetHours} hours. This may click Create activity, but it never clicks Submit logbook.`;
     createNotes.addEventListener("click", async () => {
       try {
         createNotes.disabled = true;
@@ -1293,10 +1304,14 @@
 
     refreshNoteDates();
     noteDateGroup.append(noteDateLabel, noteDate);
+    notesControls.append(noteDateGroup, createNotes);
+    notesSection.append(notesTitle, notesControls);
 
     header.append(title, status);
-    row.append(nameInput, save, noteDateGroup, createNotes);
-    panel.append(header, presetList, row);
+    row.append(nameInput, save);
+    presetsColumn.append(presetList, row);
+    content.append(presetsColumn, notesSection);
+    panel.append(header, content);
     refreshPresets();
 
     form.addEventListener("submit", () => {
