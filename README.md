@@ -23,7 +23,7 @@ It adds local presets, persistent last-used activity selections, daily hour tota
   - `Total hours forecast: X / 400 hrs`
   - `Client contact forecast: X / 172 hrs`
   - `Client contact hours of 172 hrs`
-  - The forecast can include locally cached visible `Client Contact` hours from unsubmitted/unapproved logbooks after you have opened those logbook pages.
+  - The forecast can include locally cached `Client Contact` hours from week logbooks scanned by the script.
 
 ## Safety Notes
 
@@ -112,6 +112,18 @@ The script remembers your last-used fields locally. When you open `New activity`
 
 The date is persistent, so if you last used `30/07/2026`, opening the modal again should keep that date rather than resetting to today.
 
+## Dashboard Client Contact Scan
+
+On the contract dashboard, the weekly table does not show activity types. To calculate client contact progress, the script scans the linked week logbooks in hidden same-site iframes and caches the `Client Contact` hours locally.
+
+Caching rules:
+
+- New or missing weeks are scanned automatically on dashboard load.
+- `Approved`, `Submitted`, and `Pending` weeks are treated as stable after one successful scan.
+- `Not submitted` weeks can be rescanned automatically after `CONFIG.clientContactScanStaleHours` hours, or whenever you click `Refresh contact scan`.
+- The scan never clicks `Submit logbook` and does not call the SPTT API.
+
+If the forecast still looks wrong, open the browser console and look for `[Logbook presets]` scan messages, then click `Refresh contact scan` on the contract summary card.
 ## Dashboard Targets
 
 The script ships with a default client contact target of `172` hours.

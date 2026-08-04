@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.6.2
+// @version      0.7.0
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -29,6 +29,7 @@
     dailyTotalsId: "sptt-daily-hours-tally",
     contractProgressId: "sptt-contract-progress",
     clientContactTargetId: "sptt-client-contact-target",
+    clientContactScanStatusId: "sptt-client-contact-scan",
     maxPresets: 12,
     dailyTargetHours: 7.5,
     fillDayNotesPresetNames: ["Notes 3hr", "Notes 2hr", "Notes 1hr", "Notes 0.5hr"],
@@ -137,6 +138,10 @@
     ],
     defaultActivitiesPerPage: "20",
     clientContactTargetHours: 172,
+    clientContactScanStaleHours: 6,
+    clientContactScanMaxWeeks: 20,
+    clientContactScanTimeoutMs: 12000,
+    clientContactScanSettleMs: 800,
     usePlacementHoursAsClientContactFallback: true,
     theme: { accent: "#c05621", accentDark: "#9c4221", accentSoft: "#fff7ed", accentBorder: "#fdba74" },
     modalTitleText: "New activity",
@@ -172,6 +177,8 @@
   let dailyTotalsSignature = "";
   let enhancementTimer = 0;
   let pageSizeDefaultInProgress = false;
+  let clientContactScanInProgress = false;
+  let clientContactScanSignature = "";
 
   function log(...args) {
     if (CONFIG.debug) console.info(LOG_PREFIX, ...args);
@@ -353,6 +360,258 @@
     const total = entries.reduce((sum, item) => sum + (Number.isFinite(Number(item?.hours)) ? Number(item.hours) : 0), 0);
     return entries.length ? roundHours(total) : NaN;
   }
+
+  function normalizeLogbookStatus(text) {
+    const value = normalize(text);
+    if (value.includes("approved")) return "approved";
+    if (value.includes("not submitted")) return "notSubmitted";
+    if (value.includes("pending") || value.includes("submitted")) return "pending";
+    return value || "unknown";
+  }
+
+  function cacheAgeHours(entry) {
+    const raw = entry?.scannedAt || entry?.updatedAt;
+    const time = raw ? new Date(raw).getTime() : NaN;
+    return Number.isFinite(time) ? (Date.now() - time) / 3600000 : Infinity;
+  }
+
+  function shouldScanClientContactWeek(week, cached, force = false) {
+    if (force) return true;
+    if (!cached) return true;
+    if (cached.source !== "hidden-frame" && !cached.scannedAt) return true;
+    if (Number.isFinite(week.activityCount) && Number(cached.activityCount) !== week.activityCount) return true;
+    if (week.status === "notSubmitted") return cacheAgeHours(cached) > CONFIG.clientContactScanStaleHours;
+    return false;
+  }
+
+  function readDashboardLogbookWeeks() {
+    const contractId = contractIdFromPath();
+    const weeks = [];
+    document.querySelectorAll("table").forEach((table) => {
+      const headers = [...table.querySelectorAll("thead th, thead [role='columnheader'], tr:first-child th")].map((cell) => normalize(cell.textContent));
+      const weekIndex = headers.findIndex((header) => header.includes("week starting"));
+      const statusIndex = headers.findIndex((header) => header.includes("status"));
+      const activitiesIndex = headers.findIndex((header) => header.includes("activities"));
+      const hoursIndex = headers.findIndex((header) => header.includes("hours total"));
+      if (weekIndex < 0) return;
+      table.querySelectorAll("tbody tr").forEach((row) => {
+        const cells = [...row.children];
+        const dateText = cells[weekIndex]?.textContent || "";
+        const weekStarting = parseDateKey(dateText);
+        if (!weekStarting) return;
+        const link = cells[weekIndex]?.querySelector("a[href]");
+        if (!link) return;
+        const url = new URL(link.getAttribute("href"), window.location.href);
+        const logbookMatch = url.pathname.match(/\/logbooks\/([^/]+)/i);
+        const logbookId = logbookMatch ? logbookMatch[1] : `${contractId}:${weekStarting}`;
+        weeks.push({
+          logbookId,
+          weekStarting,
+          status: normalizeLogbookStatus(cells[statusIndex]?.textContent || ""),
+          activityCount: activitiesIndex >= 0 ? parseNumber(cells[activitiesIndex]?.textContent || "") : NaN,
+          totalHours: hoursIndex >= 0 ? parseNumber(cells[hoursIndex]?.textContent || "") : NaN,
+          url: url.href,
+          path: url.pathname,
+        });
+      });
+    });
+    return weeks.slice(0, CONFIG.clientContactScanMaxWeeks);
+  }
+
+  function readActivitiesFromDocument(doc) {
+    const activities = [];
+    doc.querySelectorAll("table").forEach((table) => {
+      const headers = [...table.querySelectorAll("thead th, thead [role='columnheader'], tr:first-child th")].map((cell) => normalize(cell.textContent));
+      const dateIndex = headers.findIndex((header) => header === "date" || header.includes("date"));
+      const durationIndex = headers.findIndex((header) => header.includes("duration") || header.includes("hours"));
+      const typeIndex = headers.findIndex((header) => header.includes("activity type") || header === "type");
+      if (dateIndex < 0 || durationIndex < 0) return;
+      table.querySelectorAll("tbody tr").forEach((row) => {
+        const cells = [...row.children];
+        const date = parseDateKey(cells[dateIndex]?.textContent || "");
+        const hours = parseHours(cells[durationIndex]?.textContent || "");
+        const type = typeIndex >= 0 ? (cells[typeIndex]?.textContent || "").trim() : "";
+        const raw = row.textContent || "";
+        if (date && Number.isFinite(hours)) activities.push({ date, hours, type, raw });
+      });
+    });
+    return activities;
+  }
+
+  function clientContactSummaryFromActivities(activities) {
+    const clientActivities = activities.filter(activityIsClientContact);
+    return {
+      activityCount: activities.length,
+      clientCount: clientActivities.length,
+      hours: roundHours(clientActivities.reduce((sum, activity) => sum + activity.hours, 0)),
+      types: [...new Set(activities.map((activity) => activity.type).filter(Boolean))],
+    };
+  }
+
+  function writeClientContactCacheEntry(contractId, week, summary, source) {
+    const cache = readClientContactCache();
+    cache[contractId] = cache[contractId] || {};
+    cache[contractId][week.logbookId] = {
+      hours: summary.hours,
+      activityCount: summary.activityCount,
+      clientCount: summary.clientCount,
+      types: summary.types,
+      weekStarting: week.weekStarting,
+      status: week.status,
+      totalHours: week.totalHours,
+      updatedAt: new Date().toISOString(),
+      scannedAt: new Date().toISOString(),
+      source,
+      path: week.path,
+    };
+    writeClientContactCache(cache);
+  }
+
+  function waitForIframeActivitySummary(iframe) {
+    return new Promise((resolve, reject) => {
+      let observer = null;
+      let settleTimer = 0;
+      const timeout = window.setTimeout(() => {
+        if (observer) observer.disconnect();
+        reject(new Error("Timed out waiting for activity rows in hidden logbook scan."));
+      }, CONFIG.clientContactScanTimeoutMs);
+
+      const finish = (summary) => {
+        window.clearTimeout(timeout);
+        window.clearTimeout(settleTimer);
+        if (observer) observer.disconnect();
+        resolve(summary);
+      };
+
+      const evaluate = () => {
+        const doc = iframe.contentDocument;
+        if (!doc?.body) return;
+        const activities = readActivitiesFromDocument(doc);
+        if (!activities.length) return;
+        window.clearTimeout(settleTimer);
+        settleTimer = window.setTimeout(() => finish(clientContactSummaryFromActivities(activities)), CONFIG.clientContactScanSettleMs);
+      };
+
+      const attach = () => {
+        try {
+          const doc = iframe.contentDocument;
+          if (!doc?.documentElement) return;
+          if (observer) observer.disconnect();
+          observer = new MutationObserver(evaluate);
+          observer.observe(doc.documentElement, { childList: true, subtree: true });
+          evaluate();
+        } catch (err) {
+          window.clearTimeout(timeout);
+          reject(err);
+        }
+      };
+
+      iframe.addEventListener("load", attach, { once: false });
+      attach();
+    });
+  }
+
+  async function scanWeekClientContact(week) {
+    if (Number.isFinite(week.activityCount) && week.activityCount <= 0) {
+      return { activityCount: 0, clientCount: 0, hours: 0, types: [] };
+    }
+    const iframe = document.createElement("iframe");
+    iframe.src = week.url;
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.tabIndex = -1;
+    iframe.style.cssText = "position:absolute;left:-10000px;top:-10000px;width:1px;height:1px;border:0;opacity:0;pointer-events:none;";
+    document.body.append(iframe);
+    try {
+      return await waitForIframeActivitySummary(iframe);
+    } finally {
+      iframe.remove();
+    }
+  }
+
+  function clientContactScanStats(weeks) {
+    const contractId = contractIdFromPath();
+    const contractCache = readClientContactCache()[contractId] || {};
+    const cached = weeks.filter((week) => contractCache[week.logbookId]).length;
+    const stale = weeks.filter((week) => shouldScanClientContactWeek(week, contractCache[week.logbookId], false)).length;
+    return { total: weeks.length, cached, stale };
+  }
+
+  function renderClientContactScanControl(message = "") {
+    if (!isContractDashboardPage()) return;
+    const summaryCard = findContractSummaryCard();
+    if (!summaryCard) return;
+    const weeks = readDashboardLogbookWeeks();
+    let panel = document.getElementById(CONFIG.clientContactScanStatusId);
+    if (!panel) {
+      panel = document.createElement("div");
+      panel.id = CONFIG.clientContactScanStatusId;
+      panel.setAttribute("aria-label", "Client contact scan status");
+      summaryCard.append(panel);
+    }
+    const stats = clientContactScanStats(weeks);
+    const text = message || `Client contact scan: ${stats.cached} / ${stats.total} weeks cached${stats.stale ? `, ${stats.stale} to scan` : ""}`;
+    const signature = `${text}|busy:${clientContactScanInProgress}`;
+    if (panel.dataset.signature === signature) return;
+    panel.dataset.signature = signature;
+    panel.textContent = "";
+    panel.style.cssText = `margin:8px auto 0;display:flex;justify-content:center;align-items:center;gap:8px;color:${CONFIG.theme.accentDark};font-size:12px;`;
+    const label = document.createElement("span");
+    label.textContent = text;
+    const refresh = button(clientContactScanInProgress ? "Scanning..." : "Refresh contact scan");
+    refresh.disabled = clientContactScanInProgress || !weeks.length;
+    refresh.style.minHeight = "26px";
+    refresh.style.padding = "3px 7px";
+    refresh.addEventListener("click", () => scanDashboardClientContactWeeks({ force: true }));
+    panel.append(label, refresh);
+  }
+
+  async function scanDashboardClientContactWeeks({ force = false } = {}) {
+    if (!isContractDashboardPage() || window.self !== window.top || clientContactScanInProgress) return;
+    const contractId = contractIdFromPath();
+    const weeks = readDashboardLogbookWeeks();
+    if (!contractId || !weeks.length) {
+      renderClientContactScanControl("Client contact scan: no week links found yet.");
+      return;
+    }
+    const contractCache = readClientContactCache()[contractId] || {};
+    const toScan = weeks.filter((week) => shouldScanClientContactWeek(week, contractCache[week.logbookId], force));
+    if (!toScan.length) {
+      renderClientContactScanControl(`Client contact scan: ${weeks.length} / ${weeks.length} weeks cached.`);
+      return;
+    }
+
+    clientContactScanInProgress = true;
+    renderClientContactScanControl(`Client contact scan: scanning 0 / ${toScan.length} weeks...`);
+    try {
+      for (let index = 0; index < toScan.length; index += 1) {
+        const week = toScan[index];
+        try {
+          const summary = await scanWeekClientContact(week);
+          writeClientContactCacheEntry(contractId, week, summary, "hidden-frame");
+          log(`Scanned ${formatDateKey(week.weekStarting)} client contact: ${summary.hours} hrs.`);
+        } catch (err) {
+          error(`Could not scan client contact for ${formatDateKey(week.weekStarting)}.`, err);
+        }
+        renderClientContactScanControl(`Client contact scan: scanning ${index + 1} / ${toScan.length} weeks...`);
+      }
+    } finally {
+      clientContactScanInProgress = false;
+      clientContactScanSignature = "";
+      renderContractDashboardProgress();
+      renderClientContactScanControl("Client contact scan complete.");
+    }
+  }
+
+  function scheduleDashboardClientContactScan() {
+    if (!isContractDashboardPage() || window.self !== window.top) return;
+    const weeks = readDashboardLogbookWeeks();
+    renderClientContactScanControl();
+    const signature = weeks.map((week) => `${week.logbookId}:${week.status}:${week.activityCount}`).join("|");
+    if (!weeks.length || signature === clientContactScanSignature) return;
+    clientContactScanSignature = signature;
+    window.setTimeout(() => scanDashboardClientContactWeeks({ force: false }), 500);
+  }
+
   function writeClientContactTarget(value) {
     const target = Number(value);
     if (!Number.isFinite(target) || target <= 0) {
@@ -1437,6 +1696,7 @@
     cacheVisibleClientContactHours();
     defaultActivitiesItemsPerPage();
     renderContractDashboardProgress();
+    scheduleDashboardClientContactScan();
   }
 
   function schedulePageEnhancements() {
