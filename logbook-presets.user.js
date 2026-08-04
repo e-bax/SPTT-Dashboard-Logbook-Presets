@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.7.3
+// @version      0.7.4
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -389,7 +389,6 @@
     if (force) return true;
     if (!cached) return true;
     if (cached.source !== "hidden-frame" && !cached.scannedAt) return true;
-    if (Number.isFinite(week.activityCount) && Number(cached.activityCount) !== week.activityCount) return true;
     if (week.status === "notSubmitted") return cacheAgeHours(cached) > CONFIG.clientContactScanStaleHours;
     return false;
   }
@@ -1451,6 +1450,7 @@
           : NaN;
         const forecastHours = Number.isFinite(projectedTotal) ? Number(projectedTotal.toFixed(1)) : null;
         const forecastTarget = Number.isFinite(clientTarget) ? Number(clientTarget.toFixed(2)) : null;
+        const contactBasisText = Number.isFinite(contactForecastBaseHours) && contactWeeksUsed > 0 ? " (" + Number(contactForecastBaseHours.toFixed(1)) + " hrs / " + contactWeeksUsed + " weeks)" : "";
         const progressText = `week:${currentWeek}/${totalWeeks}|remaining:${weeksToGo}|total:${totalForecastHours ?? ""}/${placementTarget ?? ""}|forecast:${forecastHours ?? ""}/${forecastTarget ?? ""}|cached:${Number.isFinite(cachedContactHours) ? cachedContactHours : ""}|contactWeeks:${contactWeeksUsed}|contactBase:${Number.isFinite(contactForecastBaseHours) ? contactForecastBaseHours : ""}`;
         if (progress.dataset.signature !== progressText) {
           progress.dataset.signature = progressText;
@@ -1459,7 +1459,7 @@
             ["Week ", currentWeek, " / ", totalWeeks],
             ["", weeksToGo, " weeks remaining"],
             ["Total hours forecast: ", totalForecastHours ?? "-", placementTarget !== null ? " / " : "", placementTarget ?? "", " hrs"],
-            ["Client contact forecast: ", forecastHours ?? "-", forecastTarget !== null ? " / " : "", forecastTarget ?? "", " hrs"],
+            ["Client contact forecast: ", forecastHours ?? "-", forecastTarget !== null ? " / " : "", forecastTarget ?? "", " hrs", contactBasisText],
           ];
           segments.forEach((parts, index) => {
             const segment = document.createElement("span");
