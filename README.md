@@ -22,6 +22,7 @@ It adds local presets, persistent last-used activity selections, daily hour tota
   - `X weeks remaining`
   - `Client contact forecast: X / 172 hrs`
   - `Client contact hours of 172 hrs`
+  - The forecast can include locally cached visible `Client Contact` hours from unsubmitted/unapproved logbooks after you have opened those logbook pages.
 
 ## Safety Notes
 
