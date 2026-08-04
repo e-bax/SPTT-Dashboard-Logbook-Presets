@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.6.0
+// @version      0.6.1
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -1136,6 +1136,13 @@
         }
         const progressStyle = `margin:12px auto 0;display:flex;justify-content:center;align-items:center;gap:0;color:${CONFIG.theme.accentDark};text-align:center;`;
         if (progress.style.cssText !== progressStyle) progress.style.cssText = progressStyle;
+        const totalCard = findMetricCard("Total completed hours");
+        const currentTotalHours = totalCard ? parseNumber(totalCard.textContent) : NaN;
+        const projectedPlacementTotal = Number.isFinite(currentTotalHours)
+          ? (currentTotalHours / currentWeek) * totalWeeks
+          : NaN;
+        const totalForecastHours = Number.isFinite(projectedPlacementTotal) ? Number(projectedPlacementTotal.toFixed(1)) : null;
+        const placementTarget = Number.isFinite(placementHours) ? Number(placementHours.toFixed(2)) : null;
         const contactCard = findMetricCard("Client contact hours");
         const dashboardContactHours = contactCard ? parseNumber(contactCard.textContent) : NaN;
         const cachedContactHours = cachedClientContactHoursForContract();
@@ -1147,19 +1154,20 @@
           : NaN;
         const forecastHours = Number.isFinite(projectedTotal) ? Number(projectedTotal.toFixed(1)) : null;
         const forecastTarget = Number.isFinite(clientTarget) ? Number(clientTarget.toFixed(2)) : null;
-        const progressText = `week:${currentWeek}/${totalWeeks}|remaining:${weeksToGo}|forecast:${forecastHours ?? ""}/${forecastTarget ?? ""}|cached:${Number.isFinite(cachedContactHours) ? cachedContactHours : ""}`;
+        const progressText = `week:${currentWeek}/${totalWeeks}|remaining:${weeksToGo}|total:${totalForecastHours ?? ""}/${placementTarget ?? ""}|forecast:${forecastHours ?? ""}/${forecastTarget ?? ""}|cached:${Number.isFinite(cachedContactHours) ? cachedContactHours : ""}`;
         if (progress.dataset.signature !== progressText) {
           progress.dataset.signature = progressText;
           progress.textContent = "";
           const segments = [
             ["Week ", currentWeek, " / ", totalWeeks],
             ["", weeksToGo, " weeks remaining"],
+            ["Total hours forecast: ", totalForecastHours ?? "-", placementTarget !== null ? " / " : "", placementTarget ?? "", " hrs"],
             ["Client contact forecast: ", forecastHours ?? "-", forecastTarget !== null ? " / " : "", forecastTarget ?? "", " hrs"],
           ];
           segments.forEach((parts, index) => {
             const segment = document.createElement("span");
             segment.style.cssText = `display:inline-flex;align-items:baseline;justify-content:center;padding:0 14px;${index > 0 ? `border-left:1px solid ${CONFIG.theme.accentBorder};` : ""}`;
-            if (index === 2) {
+            if (index === 3) {
               segment.title = Number.isFinite(cachedContactHours) && cachedContactHours > (Number.isFinite(dashboardContactHours) ? dashboardContactHours : 0) ? "Forecast includes locally cached visible client contact from unsubmitted/unapproved logbooks. Click to change client contact target hours." : "Click to change client contact target hours";
               segment.style.cursor = "pointer";
               segment.addEventListener("click", () => {
