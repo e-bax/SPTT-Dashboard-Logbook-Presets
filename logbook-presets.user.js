@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.7.2
+// @version      0.7.3
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -313,8 +313,9 @@
   }
 
   function activityIsClientContact(activity) {
-    const text = normalize([activity?.type, activity?.raw].filter(Boolean).join(" "));
-    return /\bclient\s+contact\b/.test(text);
+    const type = normalize(activity?.type);
+    if (type) return /^client\s+contact$/.test(type);
+    return /\bclient\s+contact\b/.test(normalize(activity?.raw));
   }
 
   function visibleClientContactSummary() {
@@ -574,6 +575,14 @@
     panel.append(label, refresh);
   }
 
+  function clearCachedClientContactWeeks(contractId, weeks) {
+    if (!contractId || !weeks.length) return;
+    const cache = readClientContactCache();
+    const contractCache = cache[contractId];
+    if (!contractCache) return;
+    weeks.forEach((week) => delete contractCache[week.logbookId]);
+    writeClientContactCache(cache);
+  }
   async function scanDashboardClientContactWeeks({ force = false } = {}) {
     if (!isContractDashboardPage() || window.self !== window.top || clientContactScanInProgress) return;
     const contractId = contractIdFromPath();
@@ -582,6 +591,7 @@
       renderClientContactScanControl("Client contact scan: no week links found yet.");
       return;
     }
+    if (force) clearCachedClientContactWeeks(contractId, weeks);
     const contractCache = readClientContactCache()[contractId] || {};
     const toScan = weeks.filter((week) => shouldScanClientContactWeek(week, contractCache[week.logbookId], force));
     if (!toScan.length) {

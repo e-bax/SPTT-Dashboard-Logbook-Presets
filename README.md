@@ -121,6 +121,7 @@ Caching rules:
 - New or missing weeks are scanned automatically on dashboard load.
 - `Approved`, `Submitted`, and `Pending` weeks are treated as stable after one successful scan.
 - `Not submitted` weeks can be rescanned automatically after `CONFIG.clientContactScanStaleHours` hours, or whenever you click `Refresh contact scan`.
+- `Refresh contact scan` clears and rebuilds the cached client-contact values for the visible dashboard weeks.
 - The scan never clicks `Submit logbook` and does not call the SPTT API.
 
 If the forecast still looks wrong, open the browser console and look for `[Logbook presets]` scan messages, then click `Refresh contact scan` on the contract summary card.
