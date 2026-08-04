@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.7.4
+// @version      0.7.5
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -447,6 +447,21 @@
     return activities;
   }
 
+  function weeklyClientContactSummaryFromDocument(doc) {
+    const text = (doc.body?.textContent || "").replace(/\s+/g, " ").trim();
+    const match = text.match(/Direct client total\s*:?\s*(-?\d+(?:\.\d+)?)\s*hrs?\b/i);
+    if (!match) return null;
+    const hours = Number(match[1]);
+    if (!Number.isFinite(hours)) return null;
+    const activities = readActivitiesFromDocument(doc);
+    return {
+      activityCount: activities.length,
+      clientCount: NaN,
+      hours: roundHours(hours),
+      types: ["Direct client total"],
+      source: "weekly-summary",
+    };
+  }
   function clientContactSummaryFromActivities(activities) {
     const clientActivities = activities.filter(activityIsClientContact);
     return {
@@ -470,7 +485,7 @@
       totalHours: week.totalHours,
       updatedAt: new Date().toISOString(),
       scannedAt: new Date().toISOString(),
-      source,
+      source: summary.source || source,
       path: week.path,
     };
     writeClientContactCache(cache);
@@ -482,7 +497,7 @@
       let settleTimer = 0;
       const timeout = window.setTimeout(() => {
         if (observer) observer.disconnect();
-        reject(new Error("Timed out waiting for activity rows in hidden logbook scan."));
+        reject(new Error("Timed out waiting for weekly client contact summary in hidden logbook scan."));
       }, CONFIG.clientContactScanTimeoutMs);
 
       const finish = (summary) => {
@@ -495,6 +510,12 @@
       const evaluate = () => {
         const doc = iframe.contentDocument;
         if (!doc?.body) return;
+        const weeklySummary = weeklyClientContactSummaryFromDocument(doc);
+        if (weeklySummary) {
+          window.clearTimeout(settleTimer);
+          settleTimer = window.setTimeout(() => finish(weeklySummary), CONFIG.clientContactScanSettleMs);
+          return;
+        }
         const activities = readActivitiesFromDocument(doc);
         if (!activities.length) return;
         window.clearTimeout(settleTimer);
