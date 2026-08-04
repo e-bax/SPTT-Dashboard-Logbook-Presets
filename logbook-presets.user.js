@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.6.1
+// @version      0.6.2
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -306,13 +306,19 @@
   }
 
   function activityIsClientContact(activity) {
-    return normalize(activity?.type).includes("client contact");
+    const text = normalize([activity?.type, activity?.raw].filter(Boolean).join(" "));
+    return /\bclient\s+contact\b/.test(text);
   }
 
-  function visibleClientContactHours() {
-    return roundHours(readRenderedActivities()
-      .filter(activityIsClientContact)
-      .reduce((sum, activity) => sum + activity.hours, 0));
+  function visibleClientContactSummary() {
+    const activities = readRenderedActivities();
+    const clientActivities = activities.filter(activityIsClientContact);
+    return {
+      activityCount: activities.length,
+      clientCount: clientActivities.length,
+      hours: roundHours(clientActivities.reduce((sum, activity) => sum + activity.hours, 0)),
+      types: [...new Set(activities.map((activity) => activity.type).filter(Boolean))],
+    };
   }
 
   function cacheVisibleClientContactHours() {
@@ -321,17 +327,25 @@
       const contractId = contractIdFromPath();
       const logbookId = logbookIdFromPath();
       if (!contractId || !logbookId) return;
-      const hours = visibleClientContactHours();
-      if (!Number.isFinite(hours)) return;
+      const summary = visibleClientContactSummary();
+      if (!summary.activityCount || !Number.isFinite(summary.hours)) return;
       const cache = readClientContactCache();
       cache[contractId] = cache[contractId] || {};
-      cache[contractId][logbookId] = { hours, updatedAt: new Date().toISOString(), path: window.location.pathname };
+      const previous = cache[contractId][logbookId];
+      if (summary.hours === 0 && Number(previous?.hours) > 0 && summary.clientCount === 0) return;
+      cache[contractId][logbookId] = {
+        hours: summary.hours,
+        activityCount: summary.activityCount,
+        clientCount: summary.clientCount,
+        types: summary.types,
+        updatedAt: new Date().toISOString(),
+        path: window.location.pathname,
+      };
       writeClientContactCache(cache);
     } catch (err) {
       error("Could not cache visible client contact hours.", err);
     }
   }
-
   function cachedClientContactHoursForContract() {
     const contractId = contractIdFromPath();
     if (!contractId) return NaN;
@@ -713,7 +727,8 @@
         const date = parseDateKey(cells[dateIndex]?.textContent || "");
         const hours = parseHours(cells[durationIndex]?.textContent || "");
         const type = typeIndex >= 0 ? (cells[typeIndex]?.textContent || "").trim() : "";
-        if (date && Number.isFinite(hours)) activities.push({ date, hours, type });
+        const raw = row.textContent || "";
+        if (date && Number.isFinite(hours)) activities.push({ date, hours, type, raw });
       });
     });
     return activities;
@@ -731,7 +746,7 @@
     const hours = durationMatch ? Number(durationMatch[1]) : NaN;
     const typeMatch = text.match(/Activity type\s*:?\s*(.*?)(?:Place of practice|Duration \(hours\)|$)/i);
     const type = typeMatch ? typeMatch[1].trim() : "";
-    return date && Number.isFinite(hours) ? [{ date, hours, type }] : [];
+    return date && Number.isFinite(hours) ? [{ date, hours, type, raw: text }] : [];
   }
 
   function readRenderedActivities() {
