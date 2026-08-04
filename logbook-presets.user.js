@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.7.0
+// @version      0.7.1
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -596,7 +596,6 @@
       }
     } finally {
       clientContactScanInProgress = false;
-      clientContactScanSignature = "";
       renderContractDashboardProgress();
       renderClientContactScanControl("Client contact scan complete.");
     }
