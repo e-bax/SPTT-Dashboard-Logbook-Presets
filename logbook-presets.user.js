@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.7.6
+// @version      0.7.7
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -537,6 +537,25 @@
     }
   }
 
+  function weekHasLoggedActivity(week) {
+    return Number(week?.activityCount) > 0 || Number(week?.totalHours) > 0;
+  }
+
+  function cachedNotSubmittedClientContactStats(weeks) {
+    const contractId = contractIdFromPath();
+    const contractCache = readClientContactCache()[contractId] || {};
+    const activeWeeks = weeks.filter((week) => week.status === "notSubmitted" && weekHasLoggedActivity(week));
+    const cachedWeeks = activeWeeks.filter((week) => contractCache[week.logbookId]);
+    const hours = cachedWeeks.reduce((sum, week) => {
+      const item = contractCache[week.logbookId];
+      return sum + (Number.isFinite(Number(item?.hours)) ? Number(item.hours) : 0);
+    }, 0);
+    return { hours: roundHours(hours), weekCount: cachedWeeks.length };
+  }
+
+  function dashboardCountedClientContactWeekCount(weeks) {
+    return weeks.filter((week) => week.status !== "notSubmitted" && weekHasLoggedActivity(week)).length;
+  }
   function clientContactScanStats(weeks) {
     const contractId = contractIdFromPath();
     const contractCache = readClientContactCache()[contractId] || {};
@@ -1436,22 +1455,24 @@
         const placementTarget = Number.isFinite(placementHours) ? Number(placementHours.toFixed(2)) : null;
         const contactCard = findMetricCard("Client contact hours");
         const dashboardContactHours = contactCard ? parseNumber(contactCard.textContent) : NaN;
-        const cachedContactStats = cachedClientContactStatsForContract();
-        const cachedContactHours = cachedContactStats.hours;
-        const currentContactHours = Math.max(Number.isFinite(dashboardContactHours) ? dashboardContactHours : 0, Number.isFinite(cachedContactHours) ? cachedContactHours : 0);
-        const useCachedContactForecast = Number.isFinite(cachedContactHours) && cachedContactStats.weekCount > 0 && (!Number.isFinite(dashboardContactHours) || cachedContactHours >= dashboardContactHours);
-        const contactForecastBaseHours = useCachedContactForecast ? cachedContactHours : dashboardContactHours;
-        const contactWeeksUsed = useCachedContactForecast ? cachedContactStats.weekCount : currentWeek;
+        const weeks = readDashboardLogbookWeeks();
+        const unsubmittedContactStats = cachedNotSubmittedClientContactStats(weeks);
+        const dashboardContactBase = Number.isFinite(dashboardContactHours) ? dashboardContactHours : 0;
+        const dashboardContactWeeks = dashboardCountedClientContactWeekCount(weeks);
+        const contactForecastBaseHours = roundHours(dashboardContactBase + unsubmittedContactStats.hours);
+        const contactWeeksUsed = dashboardContactWeeks + unsubmittedContactStats.weekCount;
+        const currentContactHours = contactForecastBaseHours;
         const savedClientTarget = readClientContactTarget();
         const clientTarget = savedClientTarget ?? (CONFIG.usePlacementHoursAsClientContactFallback ? placementHours : NaN);
-        const remainingForecastWeeks = Math.max(0, totalWeeks - contactWeeksUsed);
-        const projectedTotal = Number.isFinite(contactForecastBaseHours) && contactWeeksUsed > 0
-          ? contactForecastBaseHours + ((contactForecastBaseHours / contactWeeksUsed) * remainingForecastWeeks)
+        const forecastWeeksUsed = contactWeeksUsed > 0 ? contactWeeksUsed : currentWeek;
+        const remainingForecastWeeks = Math.max(0, totalWeeks - forecastWeeksUsed);
+        const projectedTotal = Number.isFinite(contactForecastBaseHours) && forecastWeeksUsed > 0
+          ? contactForecastBaseHours + ((contactForecastBaseHours / forecastWeeksUsed) * remainingForecastWeeks)
           : NaN;
         const forecastHours = Number.isFinite(projectedTotal) ? Number(projectedTotal.toFixed(1)) : null;
         const forecastTarget = Number.isFinite(clientTarget) ? Number(clientTarget.toFixed(2)) : null;
-        const contactBasisText = Number.isFinite(contactForecastBaseHours) && contactWeeksUsed > 0 ? " (" + Number(contactForecastBaseHours.toFixed(1)) + " hrs / " + contactWeeksUsed + " weeks)" : "";
-        const progressText = `week:${currentWeek}/${totalWeeks}|remaining:${weeksToGo}|total:${totalForecastHours ?? ""}/${placementTarget ?? ""}|forecast:${forecastHours ?? ""}/${forecastTarget ?? ""}|cached:${Number.isFinite(cachedContactHours) ? cachedContactHours : ""}|contactWeeks:${contactWeeksUsed}|contactBase:${Number.isFinite(contactForecastBaseHours) ? contactForecastBaseHours : ""}`;
+        const contactBasisText = Number.isFinite(contactForecastBaseHours) && forecastWeeksUsed > 0 ? " (" + Number(contactForecastBaseHours.toFixed(1)) + " hrs / " + forecastWeeksUsed + " weeks)" : "";
+        const progressText = `week:${currentWeek}/${totalWeeks}|remaining:${weeksToGo}|total:${totalForecastHours ?? ""}/${placementTarget ?? ""}|forecast:${forecastHours ?? ""}/${forecastTarget ?? ""}|unsubmitted:${unsubmittedContactStats.hours}|contactWeeks:${forecastWeeksUsed}|contactBase:${Number.isFinite(contactForecastBaseHours) ? contactForecastBaseHours : ""}`;
         if (progress.dataset.signature !== progressText) {
           progress.dataset.signature = progressText;
           progress.textContent = "";
@@ -1465,7 +1486,7 @@
             const segment = document.createElement("span");
             segment.style.cssText = `display:inline-flex;align-items:baseline;justify-content:center;padding:0 14px;${index > 0 ? `border-left:1px solid ${CONFIG.theme.accentBorder};` : ""}`;
             if (index === 3) {
-              segment.title = Number.isFinite(cachedContactHours) && cachedContactHours > (Number.isFinite(dashboardContactHours) ? dashboardContactHours : 0) ? "Forecast uses locally cached scanned client contact hours averaged across cached weeks with activity. Click to change client contact target hours." : "Click to change client contact target hours";
+              segment.title = unsubmittedContactStats.hours > 0 ? "Forecast uses dashboard client contact hours plus locally scanned not-submitted weeks. Click to change client contact target hours." : "Click to change client contact target hours";
               segment.style.cursor = "pointer";
               segment.addEventListener("click", () => {
                 const next = window.prompt("Client contact target hours", String(readClientContactTarget() ?? ""));
@@ -1500,8 +1521,9 @@
         const valueRow = findMetricValueRow(card);
         if (target.parentElement !== valueRow) valueRow.append(target);
         const dashboardCurrent = parseNumber(card.textContent);
-        const cachedCurrent = cachedClientContactHoursForContract();
-        const current = Math.max(Number.isFinite(dashboardCurrent) ? dashboardCurrent : 0, Number.isFinite(cachedCurrent) ? cachedCurrent : 0);
+        const currentWeeks = readDashboardLogbookWeeks();
+        const currentUnsubmitted = cachedNotSubmittedClientContactStats(currentWeeks);
+        const current = roundHours((Number.isFinite(dashboardCurrent) ? dashboardCurrent : 0) + currentUnsubmitted.hours);
         const percent = Number.isFinite(current) && clientTarget > 0 ? ` (${Math.round((current / clientTarget) * 100)}%)` : "";
         const targetStyle = `display:inline-flex;align-items:baseline;margin-left:8px;color:${CONFIG.theme.accentDark};font-size:18px;font-weight:700;white-space:nowrap;`;
         if (target.style.cssText !== targetStyle) target.style.cssText = targetStyle;
