@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.9.3
+// @version      0.9.4
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -1144,7 +1144,7 @@
       const placementHours = parseNumber(readLabelValue("Placement hours"));
       if (commenced && completion) {
         const today = startOfLocalDay(new Date());
-        const totalWeeks = Math.max(1, Math.ceil((dayDiff(completion, commenced) + 1) / 7));
+        const totalWeeks = Math.max(1, Math.ceil(dayDiff(completion, commenced) / 7));
         const currentWeek = Math.min(totalWeeks, Math.max(1, Math.floor(dayDiff(today, commenced) / 7) + 1));
         const weeksToGo = Math.max(0, Math.ceil(dayDiff(completion, today) / 7));
         let progress = document.getElementById(CONFIG.contractProgressId);

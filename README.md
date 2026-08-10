@@ -114,7 +114,7 @@ The date is persistent, so if you last used `30/07/2026`, opening the modal agai
 
 ## Dashboard Forecasts
 
-The total-hours forecast uses visible approved rows plus pending/submitted active rows. It excludes `Not submitted` draft weeks from the pace forecast, because those weeks are often still being entered and can make the projection misleadingly low. It sums the included `Hours total` values, divides by the number of included rows with logged hours, and projects that average across the placement weeks.
+The total-hours forecast uses visible approved rows plus pending/submitted active rows. It excludes `Not submitted` draft weeks from the pace forecast, because those weeks are often still being entered and can make the projection misleadingly low. It sums the included `Hours total` values, divides by the number of included rows with logged hours, and projects that average across the placement weeks. The planned completion date is treated as the start of the week after placement, not as an extra included placement week.
 
 ## Dashboard Client Contact Forecast
 
