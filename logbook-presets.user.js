@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.9.2
+// @version      0.9.3
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -1179,8 +1179,9 @@
           : NaN;
         const forecastHours = Number.isFinite(projectedTotal) ? Number(projectedTotal.toFixed(1)) : null;
         const forecastTarget = Number.isFinite(clientTarget) ? Number(clientTarget.toFixed(2)) : null;
+        const contactForecastStatus = Number.isFinite(forecastHours) && Number.isFinite(forecastTarget) ? (forecastHours >= forecastTarget ? "onTarget" : "underTarget") : "unknown";
         const contactBasisText = "";
-        const progressText = `week:${currentWeek}/${totalWeeks}|remaining:${weeksToGo}|total:${totalForecastHours ?? ""}/${placementTarget ?? ""}|totalWeeks:${loggedHoursStats.weekCount}|forecast:${forecastHours ?? ""}/${forecastTarget ?? ""}|contactWeeks:${forecastWeeksUsed}|contactBase:${Number.isFinite(contactForecastBaseHours) ? contactForecastBaseHours : ""}`;
+        const progressText = `week:${currentWeek}/${totalWeeks}|remaining:${weeksToGo}|total:${totalForecastHours ?? ""}/${placementTarget ?? ""}|totalWeeks:${loggedHoursStats.weekCount}|forecast:${forecastHours ?? ""}/${forecastTarget ?? ""}|contactStatus:${contactForecastStatus}|contactWeeks:${forecastWeeksUsed}|contactBase:${Number.isFinite(contactForecastBaseHours) ? contactForecastBaseHours : ""}`;
         if (progress.dataset.signature !== progressText) {
           progress.dataset.signature = progressText;
           progress.textContent = "";
@@ -1212,6 +1213,13 @@
               if (typeof part === "number") node.style.cssText = "font-weight:800;";
               segment.append(node);
             });
+            if (index === 3 && contactForecastStatus !== "unknown") {
+              const status = document.createElement("span");
+              const isOnTarget = contactForecastStatus === "onTarget";
+              status.textContent = isOnTarget ? " OK on target" : " ! below target";
+              status.style.cssText = `margin-left:6px;font-weight:700;color:${isOnTarget ? "#15803d" : "#b91c1c"};white-space:nowrap;`;
+              segment.append(status);
+            }
             progress.append(segment);
           });
         }
