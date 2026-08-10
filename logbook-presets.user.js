@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.8.6
+// @version      0.8.7
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -390,7 +390,7 @@
   function shouldScanClientContactWeek(week, cached, force = false) {
     if (force) return true;
     if (!cached) return true;
-    if (cached.source !== "hidden-frame" && !cached.scannedAt) return true;
+    if (cached.source !== "direct-client-summary") return true;
     if (week.status === "notSubmitted") return cacheAgeHours(cached) > CONFIG.clientContactScanStaleHours;
     return false;
   }
@@ -516,7 +516,7 @@
       const directSummaryDeadline = Date.now() + CONFIG.clientContactSummaryWaitMs;
       const timeout = window.setTimeout(() => {
         if (observer) observer.disconnect();
-        reject(new Error("Timed out waiting for activity rows in hidden logbook scan."));
+        reject(new Error("Timed out waiting for Direct client total in hidden logbook scan."));
       }, CONFIG.clientContactScanTimeoutMs);
 
       const finish = (summary) => {
@@ -536,15 +536,10 @@
           settleTimer = window.setTimeout(() => finish(directSummary), CONFIG.clientContactScanSettleMs);
           return;
         }
-        const activities = readActivitiesFromDocument(doc);
-        if (!activities.length) return;
         if (Date.now() < directSummaryDeadline) {
           window.clearTimeout(fallbackTimer);
           fallbackTimer = window.setTimeout(evaluate, Math.max(50, directSummaryDeadline - Date.now()));
-          return;
         }
-        window.clearTimeout(settleTimer);
-        settleTimer = window.setTimeout(() => finish(clientContactSummaryFromActivities(activities)), CONFIG.clientContactScanSettleMs);
       };
 
       const attach = () => {
@@ -599,7 +594,7 @@
     const contractId = contractIdFromPath();
     const contractCache = readClientContactCache()[contractId] || {};
     const activeWeeks = activeClientContactForecastWeeks(weeks).filter(weekHasLoggedActivity);
-    const cachedWeeks = activeWeeks.filter((week) => contractCache[week.logbookId]);
+    const cachedWeeks = activeWeeks.filter((week) => contractCache[week.logbookId]?.source === "direct-client-summary");
     const hours = cachedWeeks.reduce((sum, week) => {
       const item = contractCache[week.logbookId];
       return sum + (Number.isFinite(Number(item?.hours)) ? Number(item.hours) : 0);
@@ -622,7 +617,7 @@
     const contractId = contractIdFromPath();
     const contractCache = readClientContactCache()[contractId] || {};
     const forecastWeeks = activeClientContactForecastWeeks(weeks);
-    const cached = forecastWeeks.filter((week) => contractCache[week.logbookId]).length;
+    const cached = forecastWeeks.filter((week) => contractCache[week.logbookId]?.source === "direct-client-summary").length;
     const stale = forecastWeeks.filter((week) => shouldScanClientContactWeek(week, contractCache[week.logbookId], false)).length;
     return { total: forecastWeeks.length, cached, stale };
   }

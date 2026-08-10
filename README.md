@@ -118,13 +118,13 @@ The total-hours forecast uses visible approved rows plus pending/submitted activ
 
 ## Dashboard Client Contact Scan
 
-On the contract dashboard, the weekly table does not show activity types. To calculate client contact progress, the script uses the dashboard `Client contact hours` value as the source of truth for already-counted contact hours, then scans visible active rows, including `Pending` and `Not submitted` rows. This lets the forecast include the current draft week once it has logged client-contact activity. For scanned active weeks, the script prefers the week page summary `Direct client total` and only falls back to activity-row parsing if that summary is unavailable.
+On the contract dashboard, the weekly table does not show activity types. To calculate client contact progress, the script uses the dashboard `Client contact hours` value as the source of truth for already-counted contact hours, then scans visible active rows, including `Pending` and `Not submitted` rows. This lets the forecast include the current draft week once it has logged client-contact activity. For scanned active weeks, the dashboard forecast only trusts the week page summary `Direct client total`; it does not use activity-row fallback parsing for the forecast because that can be wrong while a hidden week page is still rendering.
 
 Caching rules:
 
 - New or missing active weeks are scanned automatically on dashboard load.
 - `Approved` weeks are not scanned for the forecast because the dashboard metric already includes their client contact hours.
-- `Not submitted` draft weeks are included in the client-contact pace forecast once the active week has been scanned.
+- `Not submitted` draft weeks are included in the client-contact pace forecast once their `Direct client total` has been scanned.
 - Active rows can be rescanned automatically after `CONFIG.clientContactScanStaleHours` hours, or whenever you click `Refresh contact scan`.
 - `Refresh contact scan` clears and rebuilds cached client-contact values for active rows only.
 - The scan never clicks `Submit logbook` and does not call the SPTT API.
