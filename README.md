@@ -118,9 +118,11 @@ The total-hours forecast uses visible approved rows plus pending/submitted activ
 
 ## Dashboard Client Contact Forecast
 
-The client-contact forecast uses only the official dashboard `Client contact hours` value and the count of approved logbook rows with logged hours. It does not scan active or draft logbooks. This makes the forecast less complete, but much more reliable: it shows your approved-week pace without guessing from still-changing draft pages.
+The client-contact forecast uses the official dashboard `Client contact hours` value, plus active-week values scanned only from each week page's built-in `Direct client total` summary. It does not count activity rows and does not fall back to row parsing.
 
-The label includes `approved pace` to make the caveat clear.
+The label includes `direct pace`. If an active week cannot expose `Direct client total`, the forecast skips that week and adds `active scan incomplete` to the label.
+
+The scan uses hidden same-site iframes, never calls the SPTT API, and never clicks `Submit logbook`.
 ## Dashboard Targets
 
 The script ships with a default client contact target of `172` hours.
