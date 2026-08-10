@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.8.3
+// @version      0.8.4
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -598,7 +598,7 @@
   function cachedActiveClientContactStats(weeks) {
     const contractId = contractIdFromPath();
     const contractCache = readClientContactCache()[contractId] || {};
-    const activeWeeks = activeLogbookWeeks(weeks).filter(weekHasLoggedActivity);
+    const activeWeeks = activeClientContactForecastWeeks(weeks).filter(weekHasLoggedActivity);
     const cachedWeeks = activeWeeks.filter((week) => contractCache[week.logbookId]);
     const contactWeeks = cachedWeeks.filter((week) => Number(contractCache[week.logbookId]?.hours) > 0);
     const hours = contactWeeks.reduce((sum, week) => {
@@ -615,13 +615,17 @@
     return weeks.filter((week) => week.group === "active");
   }
 
+  function activeClientContactForecastWeeks(weeks) {
+    return activeLogbookWeeks(weeks).filter((week) => week.status === "pending");
+  }
+
   function clientContactScanStats(weeks) {
     const contractId = contractIdFromPath();
     const contractCache = readClientContactCache()[contractId] || {};
-    const draftWeeks = activeLogbookWeeks(weeks);
-    const cached = draftWeeks.filter((week) => contractCache[week.logbookId]).length;
-    const stale = draftWeeks.filter((week) => shouldScanClientContactWeek(week, contractCache[week.logbookId], false)).length;
-    return { total: draftWeeks.length, cached, stale };
+    const forecastWeeks = activeClientContactForecastWeeks(weeks);
+    const cached = forecastWeeks.filter((week) => contractCache[week.logbookId]).length;
+    const stale = forecastWeeks.filter((week) => shouldScanClientContactWeek(week, contractCache[week.logbookId], false)).length;
+    return { total: forecastWeeks.length, cached, stale };
   }
 
   function renderClientContactScanControl(message = "") {
@@ -637,7 +641,7 @@
       summaryCard.append(panel);
     }
     const stats = clientContactScanStats(weeks);
-    const text = message || `Draft contact scan: ${stats.cached} / ${stats.total} active weeks cached${stats.stale ? `, ${stats.stale} to scan` : ""}`;
+    const text = message || `Pending contact scan: ${stats.cached} / ${stats.total} active weeks cached${stats.stale ? `, ${stats.stale} to scan` : ""}`;
     const signature = `${text}|busy:${clientContactScanInProgress}`;
     if (panel.dataset.signature === signature) return;
     panel.dataset.signature = signature;
@@ -666,21 +670,21 @@
     const contractId = contractIdFromPath();
     const weeks = readDashboardLogbookWeeks();
     if (!contractId || !weeks.length) {
-      renderClientContactScanControl("Draft contact scan: no active week links found yet.");
+      renderClientContactScanControl("Pending contact scan: no active week links found yet.");
       return;
     }
-    const draftWeeks = activeLogbookWeeks(weeks);
+    const forecastWeeks = activeClientContactForecastWeeks(weeks);
     const contractCache = readClientContactCache()[contractId] || {};
-    const toScan = draftWeeks.filter((week) => shouldScanClientContactWeek(week, contractCache[week.logbookId], force));
+    const toScan = forecastWeeks.filter((week) => shouldScanClientContactWeek(week, contractCache[week.logbookId], force));
     if (!toScan.length) {
-      renderClientContactScanControl(`Draft contact scan: ${draftWeeks.length} / ${draftWeeks.length} active weeks cached.`);
+      renderClientContactScanControl(`Pending contact scan: ${forecastWeeks.length} / ${forecastWeeks.length} active weeks cached.`);
       return;
     }
 
     clientContactScanInProgress = true;
     clientContactScanDirty = true;
     const nextEntries = [];
-    renderClientContactScanControl(`Draft contact scan: scanning 0 / ${toScan.length} active weeks...`);
+    renderClientContactScanControl(`Pending contact scan: scanning 0 / ${toScan.length} active weeks...`);
     try {
       for (let index = 0; index < toScan.length; index += 1) {
         const week = toScan[index];
@@ -691,13 +695,13 @@
         } catch (err) {
           error(`Could not scan client contact for ${formatDateKey(week.weekStarting)}.`, err);
         }
-        renderClientContactScanControl(`Draft contact scan: scanning ${index + 1} / ${toScan.length} active weeks...`);
+        renderClientContactScanControl(`Pending contact scan: scanning ${index + 1} / ${toScan.length} active weeks...`);
       }
     } finally {
       if (nextEntries.length) {
         const cache = readClientContactCache();
         cache[contractId] = cache[contractId] || {};
-        if (force) draftWeeks.forEach((week) => delete cache[contractId][week.logbookId]);
+        if (force) forecastWeeks.forEach((week) => delete cache[contractId][week.logbookId]);
         nextEntries.forEach(({ week, summary }) => {
           cache[contractId][week.logbookId] = clientContactCacheEntry(week, summary, "hidden-frame");
         });
@@ -706,7 +710,7 @@
       clientContactScanInProgress = false;
       clientContactScanDirty = false;
       renderContractDashboardProgress();
-      renderClientContactScanControl("Draft contact scan complete.");
+      renderClientContactScanControl("Pending contact scan complete.");
     }
   }
 
