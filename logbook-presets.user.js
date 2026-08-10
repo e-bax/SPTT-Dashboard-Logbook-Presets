@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.8.7
+// @version      0.8.8
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -24,12 +24,10 @@
     lastUsedKey: "sptt.lastUsedLogbookSelections.v1",
     clientContactTargetKey: "sptt.clientContactTargetHours.v1",
     notesQueueKey: "sptt.notesDraftQueue.v1",
-    clientContactCacheKey: "sptt.clientContactByLogbook.v1",
     panelId: "sptt-logbook-presets-panel",
     dailyTotalsId: "sptt-daily-hours-tally",
     contractProgressId: "sptt-contract-progress",
     clientContactTargetId: "sptt-client-contact-target",
-    clientContactScanStatusId: "sptt-client-contact-scan",
     maxPresets: 12,
     dailyTargetHours: 7.5,
     fillDayNotesPresetNames: ["Notes 3hr", "Notes 2hr", "Notes 1hr", "Notes 0.5hr"],
@@ -138,11 +136,6 @@
     ],
     defaultActivitiesPerPage: "20",
     clientContactTargetHours: 172,
-    clientContactScanStaleHours: 6,
-    clientContactScanMaxWeeks: 20,
-    clientContactScanTimeoutMs: 12000,
-    clientContactScanSettleMs: 800,
-    clientContactSummaryWaitMs: 3000,
     usePlacementHoursAsClientContactFallback: true,
     theme: { accent: "#c05621", accentDark: "#9c4221", accentSoft: "#fff7ed", accentBorder: "#fdba74" },
     modalTitleText: "New activity",
@@ -178,9 +171,6 @@
   let dailyTotalsSignature = "";
   let enhancementTimer = 0;
   let pageSizeDefaultInProgress = false;
-  let clientContactScanInProgress = false;
-  let clientContactScanSignature = "";
-  let clientContactScanDirty = false;
 
   function log(...args) {
     if (CONFIG.debug) console.info(LOG_PREFIX, ...args);
@@ -295,82 +285,9 @@
   }
 
 
-  function readClientContactCache() {
-    const cache = storageGet(CONFIG.clientContactCacheKey, {});
-    return cache && typeof cache === "object" && !Array.isArray(cache) ? cache : {};
-  }
-
-  function writeClientContactCache(cache) {
-    storageSet(CONFIG.clientContactCacheKey, cache);
-  }
-
   function contractIdFromPath() {
     const match = window.location.pathname.match(/\/contracts\/([^/]+)/i);
     return match ? match[1] : "";
-  }
-
-  function logbookIdFromPath() {
-    const match = window.location.pathname.match(/\/logbooks\/([^/]+)/i);
-    return match ? match[1] : "";
-  }
-
-  function activityIsClientContact(activity) {
-    const type = normalize(activity?.type);
-    if (type) return /^client\s+contact$/.test(type);
-    return /\bclient\s+contact\b/.test(normalize(activity?.raw));
-  }
-
-  function visibleClientContactSummary() {
-    const activities = readRenderedActivities();
-    const clientActivities = activities.filter(activityIsClientContact);
-    return {
-      activityCount: activities.length,
-      clientCount: clientActivities.length,
-      hours: roundHours(clientActivities.reduce((sum, activity) => sum + activity.hours, 0)),
-      types: [...new Set(activities.map((activity) => activity.type).filter(Boolean))],
-    };
-  }
-
-  function cacheVisibleClientContactHours() {
-    try {
-      if (!isLogbookPage()) return;
-      const contractId = contractIdFromPath();
-      const logbookId = logbookIdFromPath();
-      if (!contractId || !logbookId) return;
-      const summary = visibleClientContactSummary();
-      if (!summary.activityCount || !Number.isFinite(summary.hours)) return;
-      const cache = readClientContactCache();
-      cache[contractId] = cache[contractId] || {};
-      const previous = cache[contractId][logbookId];
-      if (summary.hours === 0 && Number(previous?.hours) > 0 && summary.clientCount === 0) return;
-      cache[contractId][logbookId] = {
-        hours: summary.hours,
-        activityCount: summary.activityCount,
-        clientCount: summary.clientCount,
-        types: summary.types,
-        updatedAt: new Date().toISOString(),
-        path: window.location.pathname,
-      };
-      writeClientContactCache(cache);
-    } catch (err) {
-      error("Could not cache visible client contact hours.", err);
-    }
-  }
-  function cachedClientContactStatsForContract() {
-    const contractId = contractIdFromPath();
-    if (!contractId) return { hours: NaN, weekCount: 0, entryCount: 0 };
-    const entries = Object.values(readClientContactCache()[contractId] || {});
-    const total = entries.reduce((sum, item) => sum + (Number.isFinite(Number(item?.hours)) ? Number(item.hours) : 0), 0);
-    const weekCount = entries.filter((item) => {
-      const activityCount = Number(item?.activityCount);
-      const totalHours = Number(item?.totalHours);
-      return activityCount > 0 || totalHours > 0;
-    }).length;
-    return entries.length ? { hours: roundHours(total), weekCount, entryCount: entries.length } : { hours: NaN, weekCount: 0, entryCount: 0 };
-  }
-
-  function cachedClientContactHoursForContract() {
-    return cachedClientContactStatsForContract().hours;
   }
 
   function normalizeLogbookStatus(text) {
@@ -379,20 +296,6 @@
     if (value.includes("not submitted")) return "notSubmitted";
     if (value.includes("pending") || value.includes("submitted")) return "pending";
     return value || "unknown";
-  }
-
-  function cacheAgeHours(entry) {
-    const raw = entry?.scannedAt || entry?.updatedAt;
-    const time = raw ? new Date(raw).getTime() : NaN;
-    return Number.isFinite(time) ? (Date.now() - time) / 3600000 : Infinity;
-  }
-
-  function shouldScanClientContactWeek(week, cached, force = false) {
-    if (force) return true;
-    if (!cached) return true;
-    if (cached.source !== "direct-client-summary") return true;
-    if (week.status === "notSubmitted") return cacheAgeHours(cached) > CONFIG.clientContactScanStaleHours;
-    return false;
   }
 
   function dashboardTableGroup(table) {
@@ -438,144 +341,7 @@
         });
       });
     });
-    return weeks.slice(0, CONFIG.clientContactScanMaxWeeks);
-  }
-
-  function readActivitiesFromDocument(doc) {
-    const activities = [];
-    doc.querySelectorAll("table").forEach((table) => {
-      const headers = [...table.querySelectorAll("thead th, thead [role='columnheader'], tr:first-child th")].map((cell) => normalize(cell.textContent));
-      const dateIndex = headers.findIndex((header) => header === "date" || header.includes("date"));
-      const durationIndex = headers.findIndex((header) => header.includes("duration") || header.includes("hours"));
-      const typeIndex = headers.findIndex((header) => header.includes("activity type") || header === "type");
-      if (dateIndex < 0 || durationIndex < 0) return;
-      table.querySelectorAll("tbody tr").forEach((row) => {
-        const cells = [...row.children];
-        const date = parseDateKey(cells[dateIndex]?.textContent || "");
-        const hours = parseHours(cells[durationIndex]?.textContent || "");
-        const type = typeIndex >= 0 ? (cells[typeIndex]?.textContent || "").trim() : "";
-        const raw = row.textContent || "";
-        if (date && Number.isFinite(hours)) activities.push({ date, hours, type, raw });
-      });
-    });
-    return activities;
-  }
-
-  function directClientSummaryFromDocument(doc) {
-    const text = (doc.body?.textContent || "").replace(/\s+/g, " ").trim();
-    const match = text.match(/Direct client total\s*:?\s*(-?\d+(?:\.\d+)?)\s*hrs?\b/i);
-    if (!match) return null;
-    const hours = Number(match[1]);
-    if (!Number.isFinite(hours)) return null;
-    const activities = readActivitiesFromDocument(doc);
-    return {
-      activityCount: activities.length,
-      clientCount: NaN,
-      hours: roundHours(hours),
-      types: ["Direct client total"],
-      source: "direct-client-summary",
-    };
-  }
-  function clientContactSummaryFromActivities(activities) {
-    const clientActivities = activities.filter(activityIsClientContact);
-    return {
-      activityCount: activities.length,
-      clientCount: clientActivities.length,
-      hours: roundHours(clientActivities.reduce((sum, activity) => sum + activity.hours, 0)),
-      types: [...new Set(activities.map((activity) => activity.type).filter(Boolean))],
-    };
-  }
-
-  function clientContactCacheEntry(week, summary, source) {
-    return {
-      hours: summary.hours,
-      activityCount: summary.activityCount,
-      clientCount: summary.clientCount,
-      types: summary.types,
-      weekStarting: week.weekStarting,
-      status: week.status,
-      totalHours: week.totalHours,
-      updatedAt: new Date().toISOString(),
-      scannedAt: new Date().toISOString(),
-      source: summary.source || source,
-      path: week.path,
-    };
-  }
-  function writeClientContactCacheEntry(contractId, week, summary, source) {
-    const cache = readClientContactCache();
-    cache[contractId] = cache[contractId] || {};
-    cache[contractId][week.logbookId] = clientContactCacheEntry(week, summary, source);
-    writeClientContactCache(cache);
-  }
-
-  function waitForIframeActivitySummary(iframe) {
-    return new Promise((resolve, reject) => {
-      let observer = null;
-      let settleTimer = 0;
-      let fallbackTimer = 0;
-      const directSummaryDeadline = Date.now() + CONFIG.clientContactSummaryWaitMs;
-      const timeout = window.setTimeout(() => {
-        if (observer) observer.disconnect();
-        reject(new Error("Timed out waiting for Direct client total in hidden logbook scan."));
-      }, CONFIG.clientContactScanTimeoutMs);
-
-      const finish = (summary) => {
-        window.clearTimeout(timeout);
-        window.clearTimeout(settleTimer);
-        window.clearTimeout(fallbackTimer);
-        if (observer) observer.disconnect();
-        resolve(summary);
-      };
-
-      const evaluate = () => {
-        const doc = iframe.contentDocument;
-        if (!doc?.body) return;
-        const directSummary = directClientSummaryFromDocument(doc);
-        if (directSummary) {
-          window.clearTimeout(settleTimer);
-          settleTimer = window.setTimeout(() => finish(directSummary), CONFIG.clientContactScanSettleMs);
-          return;
-        }
-        if (Date.now() < directSummaryDeadline) {
-          window.clearTimeout(fallbackTimer);
-          fallbackTimer = window.setTimeout(evaluate, Math.max(50, directSummaryDeadline - Date.now()));
-        }
-      };
-
-      const attach = () => {
-        try {
-          const doc = iframe.contentDocument;
-          if (!doc?.documentElement) return;
-          if (observer) observer.disconnect();
-          observer = new MutationObserver(evaluate);
-          observer.observe(doc.documentElement, { childList: true, subtree: true });
-          evaluate();
-        } catch (err) {
-          window.clearTimeout(timeout);
-          reject(err);
-        }
-      };
-
-      iframe.addEventListener("load", attach, { once: false });
-      attach();
-    });
-  }
-
-  async function scanWeekClientContact(week) {
-    if (Number.isFinite(week.activityCount) && week.activityCount <= 0) {
-      return { activityCount: 0, clientCount: 0, hours: 0, types: [] };
-    }
-    const iframe = document.createElement("iframe");
-    iframe.src = week.url;
-    iframe.setAttribute("aria-hidden", "true");
-    iframe.tabIndex = -1;
-    iframe.style.cssText = "position:absolute;left:-10000px;top:-10000px;width:1px;height:1px;border:0;opacity:0;pointer-events:none;";
-    document.body.append(iframe);
-    try {
-      return await waitForIframeActivitySummary(iframe);
-    } finally {
-      iframe.remove();
-    }
+    return weeks;
   }
 
   function weekHasLoggedActivity(week) {
@@ -590,134 +356,9 @@
     }, 0);
     return { hours: roundHours(hours), weekCount: loggedWeeks.length };
   }
-  function cachedActiveClientContactStats(weeks) {
-    const contractId = contractIdFromPath();
-    const contractCache = readClientContactCache()[contractId] || {};
-    const activeWeeks = activeClientContactForecastWeeks(weeks).filter(weekHasLoggedActivity);
-    const cachedWeeks = activeWeeks.filter((week) => contractCache[week.logbookId]?.source === "direct-client-summary");
-    const hours = cachedWeeks.reduce((sum, week) => {
-      const item = contractCache[week.logbookId];
-      return sum + (Number.isFinite(Number(item?.hours)) ? Number(item.hours) : 0);
-    }, 0);
-    return { hours: roundHours(hours), weekCount: cachedWeeks.length };
-  }
-
   function dashboardCountedClientContactWeekCount(weeks) {
     return weeks.filter((week) => week.group !== "active" && weekHasLoggedActivity(week)).length;
   }
-  function activeLogbookWeeks(weeks) {
-    return weeks.filter((week) => week.group === "active");
-  }
-
-  function activeClientContactForecastWeeks(weeks) {
-    return activeLogbookWeeks(weeks);
-  }
-
-  function clientContactScanStats(weeks) {
-    const contractId = contractIdFromPath();
-    const contractCache = readClientContactCache()[contractId] || {};
-    const forecastWeeks = activeClientContactForecastWeeks(weeks);
-    const cached = forecastWeeks.filter((week) => contractCache[week.logbookId]?.source === "direct-client-summary").length;
-    const stale = forecastWeeks.filter((week) => shouldScanClientContactWeek(week, contractCache[week.logbookId], false)).length;
-    return { total: forecastWeeks.length, cached, stale };
-  }
-
-  function renderClientContactScanControl(message = "") {
-    if (!isContractDashboardPage()) return;
-    const summaryCard = findContractSummaryCard();
-    if (!summaryCard) return;
-    const weeks = readDashboardLogbookWeeks();
-    let panel = document.getElementById(CONFIG.clientContactScanStatusId);
-    if (!panel) {
-      panel = document.createElement("div");
-      panel.id = CONFIG.clientContactScanStatusId;
-      panel.setAttribute("aria-label", "Client contact scan status");
-      summaryCard.append(panel);
-    }
-    const stats = clientContactScanStats(weeks);
-    const text = message || `Active contact scan: ${stats.cached} / ${stats.total} active weeks cached${stats.stale ? `, ${stats.stale} to scan` : ""}`;
-    const signature = `${text}|busy:${clientContactScanInProgress}`;
-    if (panel.dataset.signature === signature) return;
-    panel.dataset.signature = signature;
-    panel.textContent = "";
-    panel.style.cssText = `margin:8px auto 0;display:flex;justify-content:center;align-items:center;gap:8px;color:${CONFIG.theme.accentDark};font-size:12px;`;
-    const label = document.createElement("span");
-    label.textContent = text;
-    const refresh = button(clientContactScanInProgress ? "Scanning..." : "Refresh contact scan");
-    refresh.disabled = clientContactScanInProgress || !stats.total;
-    refresh.style.minHeight = "26px";
-    refresh.style.padding = "3px 7px";
-    refresh.addEventListener("click", () => scanDashboardClientContactWeeks({ force: true }));
-    panel.append(label, refresh);
-  }
-
-  function clearCachedClientContactWeeks(contractId, weeks) {
-    if (!contractId || !weeks.length) return;
-    const cache = readClientContactCache();
-    const contractCache = cache[contractId];
-    if (!contractCache) return;
-    weeks.forEach((week) => delete contractCache[week.logbookId]);
-    writeClientContactCache(cache);
-  }
-  async function scanDashboardClientContactWeeks({ force = false } = {}) {
-    if (!isContractDashboardPage() || window.self !== window.top || clientContactScanInProgress) return;
-    const contractId = contractIdFromPath();
-    const weeks = readDashboardLogbookWeeks();
-    if (!contractId || !weeks.length) {
-      renderClientContactScanControl("Active contact scan: no active week links found yet.");
-      return;
-    }
-    const forecastWeeks = activeClientContactForecastWeeks(weeks);
-    const contractCache = readClientContactCache()[contractId] || {};
-    const toScan = forecastWeeks.filter((week) => shouldScanClientContactWeek(week, contractCache[week.logbookId], force));
-    if (!toScan.length) {
-      renderClientContactScanControl(`Active contact scan: ${forecastWeeks.length} / ${forecastWeeks.length} active weeks cached.`);
-      return;
-    }
-
-    clientContactScanInProgress = true;
-    clientContactScanDirty = true;
-    const nextEntries = [];
-    renderClientContactScanControl(`Active contact scan: scanning 0 / ${toScan.length} active weeks...`);
-    try {
-      for (let index = 0; index < toScan.length; index += 1) {
-        const week = toScan[index];
-        try {
-          const summary = await scanWeekClientContact(week);
-          nextEntries.push({ week, summary });
-          log(`Scanned ${formatDateKey(week.weekStarting)} client contact: ${summary.hours} hrs.`);
-        } catch (err) {
-          error(`Could not scan client contact for ${formatDateKey(week.weekStarting)}.`, err);
-        }
-        renderClientContactScanControl(`Active contact scan: scanning ${index + 1} / ${toScan.length} active weeks...`);
-      }
-    } finally {
-      if (nextEntries.length) {
-        const cache = readClientContactCache();
-        cache[contractId] = cache[contractId] || {};
-        if (force) forecastWeeks.forEach((week) => delete cache[contractId][week.logbookId]);
-        nextEntries.forEach(({ week, summary }) => {
-          cache[contractId][week.logbookId] = clientContactCacheEntry(week, summary, "hidden-frame");
-        });
-        writeClientContactCache(cache);
-      }
-      clientContactScanInProgress = false;
-      clientContactScanDirty = false;
-      renderContractDashboardProgress();
-      renderClientContactScanControl("Active contact scan complete.");
-    }
-  }
-
-  function scheduleDashboardClientContactScan() {
-    if (!isContractDashboardPage() || window.self !== window.top) return;
-    const weeks = readDashboardLogbookWeeks();
-    renderClientContactScanControl();
-    const signature = weeks.map((week) => `${week.logbookId}:${week.status}:${week.activityCount}`).join("|");
-    if (!weeks.length || signature === clientContactScanSignature) return;
-    clientContactScanSignature = signature;
-    window.setTimeout(() => scanDashboardClientContactWeeks({ force: false }), 500);
-  }
-
   function writeClientContactTarget(value) {
     const target = Number(value);
     if (!Number.isFinite(target) || target <= 0) {
@@ -1498,8 +1139,6 @@
       if (!isContractDashboardPage()) return;
       const summaryCard = findContractSummaryCard();
       if (!summaryCard) return;
-      if (clientContactScanDirty) return;
-
       const commenced = parseDisplayDate(readLabelValue("Date commenced"));
       const completion = parseDisplayDate(readLabelValue("Planned completion"));
       const placementHours = parseNumber(readLabelValue("Placement hours"));
@@ -1526,11 +1165,10 @@
         const placementTarget = Number.isFinite(placementHours) ? Number(placementHours.toFixed(2)) : null;
         const contactCard = findMetricCard("Client contact hours");
         const dashboardContactHours = contactCard ? parseNumber(contactCard.textContent) : NaN;
-        const activeContactStats = cachedActiveClientContactStats(weeks);
         const dashboardContactBase = Number.isFinite(dashboardContactHours) ? dashboardContactHours : 0;
         const dashboardContactWeeks = dashboardCountedClientContactWeekCount(weeks);
-        const contactForecastBaseHours = roundHours(dashboardContactBase + activeContactStats.hours);
-        const contactWeeksUsed = dashboardContactWeeks + activeContactStats.weekCount;
+        const contactForecastBaseHours = roundHours(dashboardContactBase);
+        const contactWeeksUsed = dashboardContactWeeks;
         const currentContactHours = contactForecastBaseHours;
         const savedClientTarget = readClientContactTarget();
         const clientTarget = savedClientTarget ?? (CONFIG.usePlacementHoursAsClientContactFallback ? placementHours : NaN);
@@ -1541,8 +1179,8 @@
           : NaN;
         const forecastHours = Number.isFinite(projectedTotal) ? Number(projectedTotal.toFixed(1)) : null;
         const forecastTarget = Number.isFinite(clientTarget) ? Number(clientTarget.toFixed(2)) : null;
-        const contactBasisText = Number.isFinite(contactForecastBaseHours) && forecastWeeksUsed > 0 ? " (" + Number(contactForecastBaseHours.toFixed(1)) + " hrs / " + forecastWeeksUsed + " weeks)" : "";
-        const progressText = `week:${currentWeek}/${totalWeeks}|remaining:${weeksToGo}|total:${totalForecastHours ?? ""}/${placementTarget ?? ""}|totalWeeks:${loggedHoursStats.weekCount}|forecast:${forecastHours ?? ""}/${forecastTarget ?? ""}|active:${activeContactStats.hours}|contactWeeks:${forecastWeeksUsed}|contactBase:${Number.isFinite(contactForecastBaseHours) ? contactForecastBaseHours : ""}`;
+        const contactBasisText = Number.isFinite(contactForecastBaseHours) && forecastWeeksUsed > 0 ? " (approved pace: " + Number(contactForecastBaseHours.toFixed(1)) + " hrs / " + forecastWeeksUsed + " weeks)" : "";
+        const progressText = `week:${currentWeek}/${totalWeeks}|remaining:${weeksToGo}|total:${totalForecastHours ?? ""}/${placementTarget ?? ""}|totalWeeks:${loggedHoursStats.weekCount}|forecast:${forecastHours ?? ""}/${forecastTarget ?? ""}|contactWeeks:${forecastWeeksUsed}|contactBase:${Number.isFinite(contactForecastBaseHours) ? contactForecastBaseHours : ""}`;
         if (progress.dataset.signature !== progressText) {
           progress.dataset.signature = progressText;
           progress.textContent = "";
@@ -1556,7 +1194,7 @@
             const segment = document.createElement("span");
             segment.style.cssText = `display:inline-flex;align-items:baseline;justify-content:center;padding:0 14px;${index > 0 ? `border-left:1px solid ${CONFIG.theme.accentBorder};` : ""}`;
             if (index === 3) {
-              segment.title = activeContactStats.hours > 0 ? "Forecast uses dashboard client contact hours plus locally scanned active weeks. Click to change client contact target hours." : "Click to change client contact target hours";
+              segment.title = "Forecast uses the official dashboard client contact hours and approved logbook count only. Click to change client contact target hours.";
               segment.style.cursor = "pointer";
               segment.addEventListener("click", () => {
                 const next = window.prompt("Client contact target hours", String(readClientContactTarget() ?? ""));
@@ -1591,9 +1229,7 @@
         const valueRow = findMetricValueRow(card);
         if (target.parentElement !== valueRow) valueRow.append(target);
         const dashboardCurrent = parseNumber(card.textContent);
-        const currentWeeks = readDashboardLogbookWeeks();
-        const currentActive = cachedActiveClientContactStats(currentWeeks);
-        const current = roundHours((Number.isFinite(dashboardCurrent) ? dashboardCurrent : 0) + currentActive.hours);
+        const current = roundHours(Number.isFinite(dashboardCurrent) ? dashboardCurrent : 0);
         const percent = Number.isFinite(current) && clientTarget > 0 ? ` (${Math.round((current / clientTarget) * 100)}%)` : "";
         const targetStyle = `display:inline-flex;align-items:baseline;margin-left:8px;color:${CONFIG.theme.accentDark};font-size:18px;font-weight:700;white-space:nowrap;`;
         if (target.style.cssText !== targetStyle) target.style.cssText = targetStyle;
@@ -1808,10 +1444,8 @@
   function runPageEnhancements() {
     initialiseForCurrentModal();
     renderDailyTotals();
-    cacheVisibleClientContactHours();
     defaultActivitiesItemsPerPage();
     renderContractDashboardProgress();
-    scheduleDashboardClientContactScan();
   }
 
   function schedulePageEnhancements() {

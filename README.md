@@ -116,20 +116,11 @@ The date is persistent, so if you last used `30/07/2026`, opening the modal agai
 
 The total-hours forecast uses visible approved rows plus pending/submitted active rows. It excludes `Not submitted` draft weeks from the pace forecast, because those weeks are often still being entered and can make the projection misleadingly low. It sums the included `Hours total` values, divides by the number of included rows with logged hours, and projects that average across the placement weeks.
 
-## Dashboard Client Contact Scan
+## Dashboard Client Contact Forecast
 
-On the contract dashboard, the weekly table does not show activity types. To calculate client contact progress, the script uses the dashboard `Client contact hours` value as the source of truth for already-counted contact hours, then scans visible active rows, including `Pending` and `Not submitted` rows. This lets the forecast include the current draft week once it has logged client-contact activity. For scanned active weeks, the dashboard forecast only trusts the week page summary `Direct client total`; it does not use activity-row fallback parsing for the forecast because that can be wrong while a hidden week page is still rendering.
+The client-contact forecast uses only the official dashboard `Client contact hours` value and the count of approved logbook rows with logged hours. It does not scan active or draft logbooks. This makes the forecast less complete, but much more reliable: it shows your approved-week pace without guessing from still-changing draft pages.
 
-Caching rules:
-
-- New or missing active weeks are scanned automatically on dashboard load.
-- `Approved` weeks are not scanned for the forecast because the dashboard metric already includes their client contact hours.
-- `Not submitted` draft weeks are included in the client-contact pace forecast once their `Direct client total` has been scanned.
-- Active rows can be rescanned automatically after `CONFIG.clientContactScanStaleHours` hours, or whenever you click `Refresh contact scan`.
-- `Refresh contact scan` clears and rebuilds cached client-contact values for active rows only.
-- The scan never clicks `Submit logbook` and does not call the SPTT API.
-
-If the forecast still looks wrong, open the browser console and look for `[Logbook presets]` scan messages, then click `Refresh contact scan` on the contract summary card.
+The label includes `approved pace` to make the caveat clear.
 ## Dashboard Targets
 
 The script ships with a default client contact target of `172` hours.
