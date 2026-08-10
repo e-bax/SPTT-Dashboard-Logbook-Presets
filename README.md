@@ -112,6 +112,10 @@ The script remembers your last-used fields locally. When you open `New activity`
 
 The date is persistent, so if you last used `30/07/2026`, opening the modal again should keep that date rather than resetting to today.
 
+## Dashboard Forecasts
+
+The total-hours forecast uses visible `Active logbooks` and `Approved logbooks` rows: it sums their `Hours total`, divides by the number of rows with logged hours, and projects that average across the placement weeks.
+
 ## Dashboard Client Contact Scan
 
 On the contract dashboard, the weekly table does not show activity types. To calculate client contact progress, the script scans the linked week logbooks in hidden same-site iframes and caches the `Client Contact` hours locally. The client contact forecast uses the dashboard `Client contact hours` value for approved/submitted weeks, scans only `Active logbooks` for extra draft/in-progress client-contact hours, then projects that combined average across weeks contributing client-contact hours. For scanned active weeks, the script prefers the week page summary `Direct client total` and only falls back to activity-row parsing if that summary is unavailable.

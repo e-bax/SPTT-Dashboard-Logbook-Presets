@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.8.2
+// @version      0.8.3
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -587,6 +587,14 @@
     return Number(week?.activityCount) > 0 || Number(week?.totalHours) > 0;
   }
 
+  function dashboardLoggedHoursStats(weeks) {
+    const loggedWeeks = weeks.filter(weekHasLoggedActivity);
+    const hours = loggedWeeks.reduce((sum, week) => {
+      const hoursTotal = Number(week?.totalHours);
+      return sum + (Number.isFinite(hoursTotal) ? hoursTotal : 0);
+    }, 0);
+    return { hours: roundHours(hours), weekCount: loggedWeeks.length };
+  }
   function cachedActiveClientContactStats(weeks) {
     const contractId = contractIdFromPath();
     const contractCache = readClientContactCache()[contractId] || {};
@@ -1511,16 +1519,15 @@
         }
         const progressStyle = `margin:12px auto 0;display:flex;justify-content:center;align-items:center;gap:0;color:${CONFIG.theme.accentDark};text-align:center;`;
         if (progress.style.cssText !== progressStyle) progress.style.cssText = progressStyle;
-        const totalCard = findMetricCard("Total completed hours");
-        const currentTotalHours = totalCard ? parseNumber(totalCard.textContent) : NaN;
-        const projectedPlacementTotal = Number.isFinite(currentTotalHours)
-          ? (currentTotalHours / currentWeek) * totalWeeks
+        const weeks = readDashboardLogbookWeeks();
+        const loggedHoursStats = dashboardLoggedHoursStats(weeks);
+        const projectedPlacementTotal = loggedHoursStats.weekCount > 0
+          ? (loggedHoursStats.hours / loggedHoursStats.weekCount) * totalWeeks
           : NaN;
         const totalForecastHours = Number.isFinite(projectedPlacementTotal) ? Number(projectedPlacementTotal.toFixed(1)) : null;
         const placementTarget = Number.isFinite(placementHours) ? Number(placementHours.toFixed(2)) : null;
         const contactCard = findMetricCard("Client contact hours");
         const dashboardContactHours = contactCard ? parseNumber(contactCard.textContent) : NaN;
-        const weeks = readDashboardLogbookWeeks();
         const activeContactStats = cachedActiveClientContactStats(weeks);
         const dashboardContactBase = Number.isFinite(dashboardContactHours) ? dashboardContactHours : 0;
         const dashboardContactWeeks = dashboardCountedClientContactWeekCount(weeks);
@@ -1537,7 +1544,7 @@
         const forecastHours = Number.isFinite(projectedTotal) ? Number(projectedTotal.toFixed(1)) : null;
         const forecastTarget = Number.isFinite(clientTarget) ? Number(clientTarget.toFixed(2)) : null;
         const contactBasisText = Number.isFinite(contactForecastBaseHours) && forecastWeeksUsed > 0 ? " (" + Number(contactForecastBaseHours.toFixed(1)) + " hrs / " + forecastWeeksUsed + " weeks)" : "";
-        const progressText = `week:${currentWeek}/${totalWeeks}|remaining:${weeksToGo}|total:${totalForecastHours ?? ""}/${placementTarget ?? ""}|forecast:${forecastHours ?? ""}/${forecastTarget ?? ""}|active:${activeContactStats.hours}|contactWeeks:${forecastWeeksUsed}|contactBase:${Number.isFinite(contactForecastBaseHours) ? contactForecastBaseHours : ""}`;
+        const progressText = `week:${currentWeek}/${totalWeeks}|remaining:${weeksToGo}|total:${totalForecastHours ?? ""}/${placementTarget ?? ""}|totalWeeks:${loggedHoursStats.weekCount}|forecast:${forecastHours ?? ""}/${forecastTarget ?? ""}|active:${activeContactStats.hours}|contactWeeks:${forecastWeeksUsed}|contactBase:${Number.isFinite(contactForecastBaseHours) ? contactForecastBaseHours : ""}`;
         if (progress.dataset.signature !== progressText) {
           progress.dataset.signature = progressText;
           progress.textContent = "";
