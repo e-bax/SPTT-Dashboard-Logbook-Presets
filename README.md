@@ -114,14 +114,14 @@ The date is persistent, so if you last used `30/07/2026`, opening the modal agai
 
 ## Dashboard Client Contact Scan
 
-On the contract dashboard, the weekly table does not show activity types. To calculate client contact progress, the script scans the linked week logbooks in hidden same-site iframes and caches the `Client Contact` hours locally. The client contact forecast uses the dashboard `Client contact hours` value for approved/submitted weeks, adds locally scanned `Not submitted` client-contact hours, then projects that combined average across the remaining placement weeks. For scanned not-submitted weeks, the script prefers the week page summary `Direct client total` and only falls back to activity-row parsing if that summary is unavailable.
+On the contract dashboard, the weekly table does not show activity types. To calculate client contact progress, the script scans the linked week logbooks in hidden same-site iframes and caches the `Client Contact` hours locally. The client contact forecast uses the dashboard `Client contact hours` value for approved/submitted weeks, scans only active `Not submitted` weeks for extra draft client-contact hours, then projects that combined average across all logged weeks. For scanned active weeks, the script prefers the week page summary `Direct client total` and only falls back to activity-row parsing if that summary is unavailable.
 
 Caching rules:
 
 - New or missing weeks are scanned automatically on dashboard load.
-- `Approved`, `Submitted`, and `Pending` weeks are treated as stable after one successful scan.
-- `Not submitted` weeks can be rescanned automatically after `CONFIG.clientContactScanStaleHours` hours, or whenever you click `Refresh contact scan`.
-- `Refresh contact scan` clears and rebuilds the cached client-contact values for the visible dashboard weeks.
+- `Approved`, `Submitted`, and `Pending` weeks are not scanned for the forecast because the dashboard metric already includes them.
+- Active `Not submitted` weeks can be rescanned automatically after `CONFIG.clientContactScanStaleHours` hours, or whenever you click `Refresh contact scan`.
+- `Refresh contact scan` clears and rebuilds cached client-contact values for active `Not submitted` weeks only.
 - The scan never clicks `Submit logbook` and does not call the SPTT API.
 
 If the forecast still looks wrong, open the browser console and look for `[Logbook presets]` scan messages, then click `Refresh contact scan` on the contract summary card.

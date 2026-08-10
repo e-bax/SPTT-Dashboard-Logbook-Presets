@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.7.8
+// @version      0.7.9
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -142,6 +142,7 @@
     clientContactScanMaxWeeks: 20,
     clientContactScanTimeoutMs: 12000,
     clientContactScanSettleMs: 800,
+    clientContactSummaryWaitMs: 3000,
     usePlacementHoursAsClientContactFallback: true,
     theme: { accent: "#c05621", accentDark: "#9c4221", accentSoft: "#fff7ed", accentBorder: "#fdba74" },
     modalTitleText: "New activity",
@@ -495,6 +496,8 @@
     return new Promise((resolve, reject) => {
       let observer = null;
       let settleTimer = 0;
+      let fallbackTimer = 0;
+      const directSummaryDeadline = Date.now() + CONFIG.clientContactSummaryWaitMs;
       const timeout = window.setTimeout(() => {
         if (observer) observer.disconnect();
         reject(new Error("Timed out waiting for activity rows in hidden logbook scan."));
@@ -503,6 +506,7 @@
       const finish = (summary) => {
         window.clearTimeout(timeout);
         window.clearTimeout(settleTimer);
+        window.clearTimeout(fallbackTimer);
         if (observer) observer.disconnect();
         resolve(summary);
       };
@@ -518,6 +522,11 @@
         }
         const activities = readActivitiesFromDocument(doc);
         if (!activities.length) return;
+        if (Date.now() < directSummaryDeadline) {
+          window.clearTimeout(fallbackTimer);
+          fallbackTimer = window.setTimeout(evaluate, Math.max(50, directSummaryDeadline - Date.now()));
+          return;
+        }
         window.clearTimeout(settleTimer);
         settleTimer = window.setTimeout(() => finish(clientContactSummaryFromActivities(activities)), CONFIG.clientContactScanSettleMs);
       };
@@ -577,12 +586,17 @@
   function dashboardCountedClientContactWeekCount(weeks) {
     return weeks.filter((week) => week.status !== "notSubmitted" && weekHasLoggedActivity(week)).length;
   }
+  function notSubmittedLogbookWeeks(weeks) {
+    return weeks.filter((week) => week.status === "notSubmitted");
+  }
+
   function clientContactScanStats(weeks) {
     const contractId = contractIdFromPath();
     const contractCache = readClientContactCache()[contractId] || {};
-    const cached = weeks.filter((week) => contractCache[week.logbookId]).length;
-    const stale = weeks.filter((week) => shouldScanClientContactWeek(week, contractCache[week.logbookId], false)).length;
-    return { total: weeks.length, cached, stale };
+    const draftWeeks = notSubmittedLogbookWeeks(weeks);
+    const cached = draftWeeks.filter((week) => contractCache[week.logbookId]).length;
+    const stale = draftWeeks.filter((week) => shouldScanClientContactWeek(week, contractCache[week.logbookId], false)).length;
+    return { total: draftWeeks.length, cached, stale };
   }
 
   function renderClientContactScanControl(message = "") {
@@ -598,7 +612,7 @@
       summaryCard.append(panel);
     }
     const stats = clientContactScanStats(weeks);
-    const text = message || `Client contact scan: ${stats.cached} / ${stats.total} weeks cached${stats.stale ? `, ${stats.stale} to scan` : ""}`;
+    const text = message || `Draft contact scan: ${stats.cached} / ${stats.total} active weeks cached${stats.stale ? `, ${stats.stale} to scan` : ""}`;
     const signature = `${text}|busy:${clientContactScanInProgress}`;
     if (panel.dataset.signature === signature) return;
     panel.dataset.signature = signature;
@@ -607,7 +621,7 @@
     const label = document.createElement("span");
     label.textContent = text;
     const refresh = button(clientContactScanInProgress ? "Scanning..." : "Refresh contact scan");
-    refresh.disabled = clientContactScanInProgress || !weeks.length;
+    refresh.disabled = clientContactScanInProgress || !stats.total;
     refresh.style.minHeight = "26px";
     refresh.style.padding = "3px 7px";
     refresh.addEventListener("click", () => scanDashboardClientContactWeeks({ force: true }));
@@ -627,19 +641,20 @@
     const contractId = contractIdFromPath();
     const weeks = readDashboardLogbookWeeks();
     if (!contractId || !weeks.length) {
-      renderClientContactScanControl("Client contact scan: no week links found yet.");
+      renderClientContactScanControl("Draft contact scan: no active week links found yet.");
       return;
     }
-    if (force) clearCachedClientContactWeeks(contractId, weeks);
+    const draftWeeks = notSubmittedLogbookWeeks(weeks);
+    if (force) clearCachedClientContactWeeks(contractId, draftWeeks);
     const contractCache = readClientContactCache()[contractId] || {};
-    const toScan = weeks.filter((week) => shouldScanClientContactWeek(week, contractCache[week.logbookId], force));
+    const toScan = draftWeeks.filter((week) => shouldScanClientContactWeek(week, contractCache[week.logbookId], force));
     if (!toScan.length) {
-      renderClientContactScanControl(`Client contact scan: ${weeks.length} / ${weeks.length} weeks cached.`);
+      renderClientContactScanControl(`Draft contact scan: ${draftWeeks.length} / ${draftWeeks.length} active weeks cached.`);
       return;
     }
 
     clientContactScanInProgress = true;
-    renderClientContactScanControl(`Client contact scan: scanning 0 / ${toScan.length} weeks...`);
+    renderClientContactScanControl(`Draft contact scan: scanning 0 / ${toScan.length} active weeks...`);
     try {
       for (let index = 0; index < toScan.length; index += 1) {
         const week = toScan[index];
@@ -650,12 +665,12 @@
         } catch (err) {
           error(`Could not scan client contact for ${formatDateKey(week.weekStarting)}.`, err);
         }
-        renderClientContactScanControl(`Client contact scan: scanning ${index + 1} / ${toScan.length} weeks...`);
+        renderClientContactScanControl(`Draft contact scan: scanning ${index + 1} / ${toScan.length} active weeks...`);
       }
     } finally {
       clientContactScanInProgress = false;
       renderContractDashboardProgress();
-      renderClientContactScanControl("Client contact scan complete.");
+      renderClientContactScanControl("Draft contact scan complete.");
     }
   }
 
