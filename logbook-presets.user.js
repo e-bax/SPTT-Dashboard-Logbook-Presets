@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.8.5
+// @version      0.8.6
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -600,12 +600,11 @@
     const contractCache = readClientContactCache()[contractId] || {};
     const activeWeeks = activeClientContactForecastWeeks(weeks).filter(weekHasLoggedActivity);
     const cachedWeeks = activeWeeks.filter((week) => contractCache[week.logbookId]);
-    const contactWeeks = cachedWeeks.filter((week) => Number(contractCache[week.logbookId]?.hours) > 0);
-    const hours = contactWeeks.reduce((sum, week) => {
+    const hours = cachedWeeks.reduce((sum, week) => {
       const item = contractCache[week.logbookId];
       return sum + (Number.isFinite(Number(item?.hours)) ? Number(item.hours) : 0);
     }, 0);
-    return { hours: roundHours(hours), weekCount: contactWeeks.length };
+    return { hours: roundHours(hours), weekCount: cachedWeeks.length };
   }
 
   function dashboardCountedClientContactWeekCount(weeks) {
@@ -616,7 +615,7 @@
   }
 
   function activeClientContactForecastWeeks(weeks) {
-    return activeLogbookWeeks(weeks).filter((week) => week.status === "pending");
+    return activeLogbookWeeks(weeks);
   }
 
   function clientContactScanStats(weeks) {
@@ -641,7 +640,7 @@
       summaryCard.append(panel);
     }
     const stats = clientContactScanStats(weeks);
-    const text = message || `Pending contact scan: ${stats.cached} / ${stats.total} active weeks cached${stats.stale ? `, ${stats.stale} to scan` : ""}`;
+    const text = message || `Active contact scan: ${stats.cached} / ${stats.total} active weeks cached${stats.stale ? `, ${stats.stale} to scan` : ""}`;
     const signature = `${text}|busy:${clientContactScanInProgress}`;
     if (panel.dataset.signature === signature) return;
     panel.dataset.signature = signature;
@@ -670,21 +669,21 @@
     const contractId = contractIdFromPath();
     const weeks = readDashboardLogbookWeeks();
     if (!contractId || !weeks.length) {
-      renderClientContactScanControl("Pending contact scan: no active week links found yet.");
+      renderClientContactScanControl("Active contact scan: no active week links found yet.");
       return;
     }
     const forecastWeeks = activeClientContactForecastWeeks(weeks);
     const contractCache = readClientContactCache()[contractId] || {};
     const toScan = forecastWeeks.filter((week) => shouldScanClientContactWeek(week, contractCache[week.logbookId], force));
     if (!toScan.length) {
-      renderClientContactScanControl(`Pending contact scan: ${forecastWeeks.length} / ${forecastWeeks.length} active weeks cached.`);
+      renderClientContactScanControl(`Active contact scan: ${forecastWeeks.length} / ${forecastWeeks.length} active weeks cached.`);
       return;
     }
 
     clientContactScanInProgress = true;
     clientContactScanDirty = true;
     const nextEntries = [];
-    renderClientContactScanControl(`Pending contact scan: scanning 0 / ${toScan.length} active weeks...`);
+    renderClientContactScanControl(`Active contact scan: scanning 0 / ${toScan.length} active weeks...`);
     try {
       for (let index = 0; index < toScan.length; index += 1) {
         const week = toScan[index];
@@ -695,7 +694,7 @@
         } catch (err) {
           error(`Could not scan client contact for ${formatDateKey(week.weekStarting)}.`, err);
         }
-        renderClientContactScanControl(`Pending contact scan: scanning ${index + 1} / ${toScan.length} active weeks...`);
+        renderClientContactScanControl(`Active contact scan: scanning ${index + 1} / ${toScan.length} active weeks...`);
       }
     } finally {
       if (nextEntries.length) {
@@ -710,7 +709,7 @@
       clientContactScanInProgress = false;
       clientContactScanDirty = false;
       renderContractDashboardProgress();
-      renderClientContactScanControl("Pending contact scan complete.");
+      renderClientContactScanControl("Active contact scan complete.");
     }
   }
 
