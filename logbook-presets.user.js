@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.7.9
+// @version      0.8.0
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -394,10 +394,21 @@
     return false;
   }
 
+  function dashboardTableGroup(table) {
+    let el = table.parentElement;
+    while (el && el !== document.body) {
+      const text = normalize(el.textContent);
+      if (text.includes("active logbooks")) return "active";
+      if (text.includes("approved logbooks")) return "approved";
+      el = el.parentElement;
+    }
+    return "unknown";
+  }
   function readDashboardLogbookWeeks() {
     const contractId = contractIdFromPath();
     const weeks = [];
     document.querySelectorAll("table").forEach((table) => {
+      const group = dashboardTableGroup(table);
       const headers = [...table.querySelectorAll("thead th, thead [role='columnheader'], tr:first-child th")].map((cell) => normalize(cell.textContent));
       const weekIndex = headers.findIndex((header) => header.includes("week starting"));
       const statusIndex = headers.findIndex((header) => header.includes("status"));
@@ -417,6 +428,7 @@
         weeks.push({
           logbookId,
           weekStarting,
+          group,
           status: normalizeLogbookStatus(cells[statusIndex]?.textContent || ""),
           activityCount: activitiesIndex >= 0 ? parseNumber(cells[activitiesIndex]?.textContent || "") : NaN,
           totalHours: hoursIndex >= 0 ? parseNumber(cells[hoursIndex]?.textContent || "") : NaN,
@@ -571,10 +583,10 @@
     return Number(week?.activityCount) > 0 || Number(week?.totalHours) > 0;
   }
 
-  function cachedNotSubmittedClientContactStats(weeks) {
+  function cachedActiveClientContactStats(weeks) {
     const contractId = contractIdFromPath();
     const contractCache = readClientContactCache()[contractId] || {};
-    const activeWeeks = weeks.filter((week) => week.status === "notSubmitted" && weekHasLoggedActivity(week));
+    const activeWeeks = activeLogbookWeeks(weeks).filter(weekHasLoggedActivity);
     const cachedWeeks = activeWeeks.filter((week) => contractCache[week.logbookId]);
     const hours = cachedWeeks.reduce((sum, week) => {
       const item = contractCache[week.logbookId];
@@ -584,16 +596,16 @@
   }
 
   function dashboardCountedClientContactWeekCount(weeks) {
-    return weeks.filter((week) => week.status !== "notSubmitted" && weekHasLoggedActivity(week)).length;
+    return weeks.filter((week) => week.group !== "active" && weekHasLoggedActivity(week)).length;
   }
-  function notSubmittedLogbookWeeks(weeks) {
-    return weeks.filter((week) => week.status === "notSubmitted");
+  function activeLogbookWeeks(weeks) {
+    return weeks.filter((week) => week.group === "active");
   }
 
   function clientContactScanStats(weeks) {
     const contractId = contractIdFromPath();
     const contractCache = readClientContactCache()[contractId] || {};
-    const draftWeeks = notSubmittedLogbookWeeks(weeks);
+    const draftWeeks = activeLogbookWeeks(weeks);
     const cached = draftWeeks.filter((week) => contractCache[week.logbookId]).length;
     const stale = draftWeeks.filter((week) => shouldScanClientContactWeek(week, contractCache[week.logbookId], false)).length;
     return { total: draftWeeks.length, cached, stale };
@@ -644,7 +656,7 @@
       renderClientContactScanControl("Draft contact scan: no active week links found yet.");
       return;
     }
-    const draftWeeks = notSubmittedLogbookWeeks(weeks);
+    const draftWeeks = activeLogbookWeeks(weeks);
     if (force) clearCachedClientContactWeeks(contractId, draftWeeks);
     const contractCache = readClientContactCache()[contractId] || {};
     const toScan = draftWeeks.filter((week) => shouldScanClientContactWeek(week, contractCache[week.logbookId], force));
@@ -1492,11 +1504,11 @@
         const contactCard = findMetricCard("Client contact hours");
         const dashboardContactHours = contactCard ? parseNumber(contactCard.textContent) : NaN;
         const weeks = readDashboardLogbookWeeks();
-        const unsubmittedContactStats = cachedNotSubmittedClientContactStats(weeks);
+        const activeContactStats = cachedActiveClientContactStats(weeks);
         const dashboardContactBase = Number.isFinite(dashboardContactHours) ? dashboardContactHours : 0;
         const dashboardContactWeeks = dashboardCountedClientContactWeekCount(weeks);
-        const contactForecastBaseHours = roundHours(dashboardContactBase + unsubmittedContactStats.hours);
-        const contactWeeksUsed = dashboardContactWeeks + unsubmittedContactStats.weekCount;
+        const contactForecastBaseHours = roundHours(dashboardContactBase + activeContactStats.hours);
+        const contactWeeksUsed = dashboardContactWeeks + activeContactStats.weekCount;
         const currentContactHours = contactForecastBaseHours;
         const savedClientTarget = readClientContactTarget();
         const clientTarget = savedClientTarget ?? (CONFIG.usePlacementHoursAsClientContactFallback ? placementHours : NaN);
@@ -1508,7 +1520,7 @@
         const forecastHours = Number.isFinite(projectedTotal) ? Number(projectedTotal.toFixed(1)) : null;
         const forecastTarget = Number.isFinite(clientTarget) ? Number(clientTarget.toFixed(2)) : null;
         const contactBasisText = Number.isFinite(contactForecastBaseHours) && forecastWeeksUsed > 0 ? " (" + Number(contactForecastBaseHours.toFixed(1)) + " hrs / " + forecastWeeksUsed + " weeks)" : "";
-        const progressText = `week:${currentWeek}/${totalWeeks}|remaining:${weeksToGo}|total:${totalForecastHours ?? ""}/${placementTarget ?? ""}|forecast:${forecastHours ?? ""}/${forecastTarget ?? ""}|unsubmitted:${unsubmittedContactStats.hours}|contactWeeks:${forecastWeeksUsed}|contactBase:${Number.isFinite(contactForecastBaseHours) ? contactForecastBaseHours : ""}`;
+        const progressText = `week:${currentWeek}/${totalWeeks}|remaining:${weeksToGo}|total:${totalForecastHours ?? ""}/${placementTarget ?? ""}|forecast:${forecastHours ?? ""}/${forecastTarget ?? ""}|active:${activeContactStats.hours}|contactWeeks:${forecastWeeksUsed}|contactBase:${Number.isFinite(contactForecastBaseHours) ? contactForecastBaseHours : ""}`;
         if (progress.dataset.signature !== progressText) {
           progress.dataset.signature = progressText;
           progress.textContent = "";
@@ -1522,7 +1534,7 @@
             const segment = document.createElement("span");
             segment.style.cssText = `display:inline-flex;align-items:baseline;justify-content:center;padding:0 14px;${index > 0 ? `border-left:1px solid ${CONFIG.theme.accentBorder};` : ""}`;
             if (index === 3) {
-              segment.title = unsubmittedContactStats.hours > 0 ? "Forecast uses dashboard client contact hours plus locally scanned not-submitted weeks. Click to change client contact target hours." : "Click to change client contact target hours";
+              segment.title = activeContactStats.hours > 0 ? "Forecast uses dashboard client contact hours plus locally scanned active weeks. Click to change client contact target hours." : "Click to change client contact target hours";
               segment.style.cursor = "pointer";
               segment.addEventListener("click", () => {
                 const next = window.prompt("Client contact target hours", String(readClientContactTarget() ?? ""));
@@ -1558,8 +1570,8 @@
         if (target.parentElement !== valueRow) valueRow.append(target);
         const dashboardCurrent = parseNumber(card.textContent);
         const currentWeeks = readDashboardLogbookWeeks();
-        const currentUnsubmitted = cachedNotSubmittedClientContactStats(currentWeeks);
-        const current = roundHours((Number.isFinite(dashboardCurrent) ? dashboardCurrent : 0) + currentUnsubmitted.hours);
+        const currentActive = cachedActiveClientContactStats(currentWeeks);
+        const current = roundHours((Number.isFinite(dashboardCurrent) ? dashboardCurrent : 0) + currentActive.hours);
         const percent = Number.isFinite(current) && clientTarget > 0 ? ` (${Math.round((current / clientTarget) * 100)}%)` : "";
         const targetStyle = `display:inline-flex;align-items:baseline;margin-left:8px;color:${CONFIG.theme.accentDark};font-size:18px;font-weight:700;white-space:nowrap;`;
         if (target.style.cssText !== targetStyle) target.style.cssText = targetStyle;
