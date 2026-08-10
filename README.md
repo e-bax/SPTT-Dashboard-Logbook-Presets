@@ -114,7 +114,7 @@ The date is persistent, so if you last used `30/07/2026`, opening the modal agai
 
 ## Dashboard Client Contact Scan
 
-On the contract dashboard, the weekly table does not show activity types. To calculate client contact progress, the script scans the linked week logbooks in hidden same-site iframes and caches the `Client Contact` hours locally. The client contact forecast uses the dashboard `Client contact hours` value for approved/submitted weeks, scans only `Active logbooks` for extra draft/in-progress client-contact hours, then projects that combined average across all logged weeks. For scanned active weeks, the script prefers the week page summary `Direct client total` and only falls back to activity-row parsing if that summary is unavailable.
+On the contract dashboard, the weekly table does not show activity types. To calculate client contact progress, the script scans the linked week logbooks in hidden same-site iframes and caches the `Client Contact` hours locally. The client contact forecast uses the dashboard `Client contact hours` value for approved/submitted weeks, scans only `Active logbooks` for extra draft/in-progress client-contact hours, then projects that combined average across weeks contributing client-contact hours. For scanned active weeks, the script prefers the week page summary `Direct client total` and only falls back to activity-row parsing if that summary is unavailable.
 
 Caching rules:
 

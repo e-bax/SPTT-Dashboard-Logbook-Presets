@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.8.0
+// @version      0.8.1
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -588,11 +588,12 @@
     const contractCache = readClientContactCache()[contractId] || {};
     const activeWeeks = activeLogbookWeeks(weeks).filter(weekHasLoggedActivity);
     const cachedWeeks = activeWeeks.filter((week) => contractCache[week.logbookId]);
-    const hours = cachedWeeks.reduce((sum, week) => {
+    const contactWeeks = cachedWeeks.filter((week) => Number(contractCache[week.logbookId]?.hours) > 0);
+    const hours = contactWeeks.reduce((sum, week) => {
       const item = contractCache[week.logbookId];
       return sum + (Number.isFinite(Number(item?.hours)) ? Number(item.hours) : 0);
     }, 0);
-    return { hours: roundHours(hours), weekCount: cachedWeeks.length };
+    return { hours: roundHours(hours), weekCount: contactWeeks.length };
   }
 
   function dashboardCountedClientContactWeekCount(weeks) {
