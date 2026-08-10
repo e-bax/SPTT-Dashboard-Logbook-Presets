@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.8.1
+// @version      0.8.2
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -180,6 +180,7 @@
   let pageSizeDefaultInProgress = false;
   let clientContactScanInProgress = false;
   let clientContactScanSignature = "";
+  let clientContactScanDirty = false;
 
   function log(...args) {
     if (CONFIG.debug) console.info(LOG_PREFIX, ...args);
@@ -485,10 +486,8 @@
     };
   }
 
-  function writeClientContactCacheEntry(contractId, week, summary, source) {
-    const cache = readClientContactCache();
-    cache[contractId] = cache[contractId] || {};
-    cache[contractId][week.logbookId] = {
+  function clientContactCacheEntry(week, summary, source) {
+    return {
       hours: summary.hours,
       activityCount: summary.activityCount,
       clientCount: summary.clientCount,
@@ -501,6 +500,11 @@
       source: summary.source || source,
       path: week.path,
     };
+  }
+  function writeClientContactCacheEntry(contractId, week, summary, source) {
+    const cache = readClientContactCache();
+    cache[contractId] = cache[contractId] || {};
+    cache[contractId][week.logbookId] = clientContactCacheEntry(week, summary, source);
     writeClientContactCache(cache);
   }
 
@@ -658,7 +662,6 @@
       return;
     }
     const draftWeeks = activeLogbookWeeks(weeks);
-    if (force) clearCachedClientContactWeeks(contractId, draftWeeks);
     const contractCache = readClientContactCache()[contractId] || {};
     const toScan = draftWeeks.filter((week) => shouldScanClientContactWeek(week, contractCache[week.logbookId], force));
     if (!toScan.length) {
@@ -667,13 +670,15 @@
     }
 
     clientContactScanInProgress = true;
+    clientContactScanDirty = true;
+    const nextEntries = [];
     renderClientContactScanControl(`Draft contact scan: scanning 0 / ${toScan.length} active weeks...`);
     try {
       for (let index = 0; index < toScan.length; index += 1) {
         const week = toScan[index];
         try {
           const summary = await scanWeekClientContact(week);
-          writeClientContactCacheEntry(contractId, week, summary, "hidden-frame");
+          nextEntries.push({ week, summary });
           log(`Scanned ${formatDateKey(week.weekStarting)} client contact: ${summary.hours} hrs.`);
         } catch (err) {
           error(`Could not scan client contact for ${formatDateKey(week.weekStarting)}.`, err);
@@ -681,7 +686,17 @@
         renderClientContactScanControl(`Draft contact scan: scanning ${index + 1} / ${toScan.length} active weeks...`);
       }
     } finally {
+      if (nextEntries.length) {
+        const cache = readClientContactCache();
+        cache[contractId] = cache[contractId] || {};
+        if (force) draftWeeks.forEach((week) => delete cache[contractId][week.logbookId]);
+        nextEntries.forEach(({ week, summary }) => {
+          cache[contractId][week.logbookId] = clientContactCacheEntry(week, summary, "hidden-frame");
+        });
+        writeClientContactCache(cache);
+      }
       clientContactScanInProgress = false;
+      clientContactScanDirty = false;
       renderContractDashboardProgress();
       renderClientContactScanControl("Draft contact scan complete.");
     }
@@ -1477,6 +1492,7 @@
       if (!isContractDashboardPage()) return;
       const summaryCard = findContractSummaryCard();
       if (!summaryCard) return;
+      if (clientContactScanDirty) return;
 
       const commenced = parseDisplayDate(readLabelValue("Date commenced"));
       const completion = parseDisplayDate(readLabelValue("Planned completion"));
