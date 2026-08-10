@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.8.4
+// @version      0.8.5
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -588,7 +588,7 @@
   }
 
   function dashboardLoggedHoursStats(weeks) {
-    const loggedWeeks = weeks.filter(weekHasLoggedActivity);
+    const loggedWeeks = weeks.filter((week) => week.status !== "notSubmitted" && weekHasLoggedActivity(week));
     const hours = loggedWeeks.reduce((sum, week) => {
       const hoursTotal = Number(week?.totalHours);
       return sum + (Number.isFinite(hoursTotal) ? hoursTotal : 0);
