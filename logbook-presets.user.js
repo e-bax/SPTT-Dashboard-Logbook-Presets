@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SPTT Dashboard Logbook Presets
 // @namespace    https://sptt-dashboard.vercel.app/
-// @version      0.8.9
+// @version      0.9.0
 // @description  Adds local-only presets, persistent last-used selections, daily totals with type breakdowns, notes auto-create queue, and page-size defaults. Never submits the logbook automatically.
 // @match        https://sptt-dashboard.vercel.app/contracts/*/logbooks/*
 // @match        https://sptt-dashboard.vercel.app/contracts/*
@@ -1424,6 +1424,17 @@
               if (typeof part === "number") node.style.cssText = "font-weight:800;";
               segment.append(node);
             });
+            if (index === 3 && activeContactStats.activeWeekCount > activeContactStats.weekCount) {
+              const scanButton = button(activeContactScanInProgress ? "Scanning..." : "Refresh active contact");
+              scanButton.disabled = activeContactScanInProgress;
+              scanButton.style.cssText += "margin-left:8px;min-height:24px;padding:2px 7px;font-size:12px;";
+              scanButton.title = "Scan active weeks using Direct client total only.";
+              scanButton.addEventListener("click", (event) => {
+                event.stopPropagation();
+                scanDashboardActiveClientContact({ force: true });
+              });
+              segment.append(scanButton);
+            }
             progress.append(segment);
           });
         }
